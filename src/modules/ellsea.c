@@ -1557,6 +1557,9 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
   forprime_t TT;
   void *E;
 
+  int check_twist = smallfact < 0;
+  smallfact = (smallfact > 0) ? smallfact : -smallfact;
+
   if (!modular_eqn && !get_seadata(0)) return NULL;
   if (T && get_FpX_var(T)==0) /* 0 is used by the modular polynomial */
   {
@@ -1613,6 +1616,14 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
           if (DEBUGLEVEL)
             err_printf("\nAborting: #E(Fq) divisible by %ld\n",ell);
           avma = ltop; return gen_0;
+        }
+        if (check_twist) {
+          card_mod_ell = (umodiu(q,ell) + 1 + t_mod_ellkt) % ell ;
+          if (!card_mod_ell) {
+            if (DEBUGLEVEL)
+              err_printf("\nAborting: #Et(Fq) divisible by %ld\n",ell);
+          avma = ltop; return gen_0;
+          }
         }
       }
       (void)Z_incremental_CRT(&TR, t_mod_ellkt, &TR_mod, ellkt);
