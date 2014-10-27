@@ -1557,8 +1557,8 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
   forprime_t TT;
   void *E;
 
-  int check_twist = smallfact < 0;
-  smallfact = (smallfact > 0) ? smallfact : -smallfact;
+  int twisttoo = smallfact < 0;
+  smallfact = smallfact < 0 ? -smallfact : smallfact;
 
   if (!modular_eqn && !get_seadata(0)) return NULL;
   if (T && get_FpX_var(T)==0) /* 0 is used by the modular polynomial */
@@ -1585,7 +1585,7 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
   if (smallfact == 1 && !mpodd(TR))
   {
     if (DEBUGLEVEL) err_printf("Aborting: #E(Fq) divisible by 2\n");
-    avma = ltop; return gen_0;
+    avma = ltop; return mkvecsmall2(1, 2); //return gen_0;
   }
 
   /* compile_atkin is a vector containing informations about Atkin primes,
@@ -1615,14 +1615,16 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
         {
           if (DEBUGLEVEL)
             err_printf("\nAborting: #E(Fq) divisible by %ld\n",ell);
-          avma = ltop; return gen_0;
+          avma = ltop; return mkvecsmall2(1, ell); //return gen_0;
         }
-        if (check_twist) {
-          card_mod_ell = (umodiu(q,ell) + 1 + t_mod_ellkt) % ell ;
-          if (!card_mod_ell) {
+        if (twisttoo)
+        { /* does ell divide q + 1 + t ? */
+          long card_mod_ell = (umodiu(q,ell) + 1 + t_mod_ellkt) % ell ;
+          if (!card_mod_ell)
+          {
             if (DEBUGLEVEL)
               err_printf("\nAborting: #Et(Fq) divisible by %ld\n",ell);
-          avma = ltop; return gen_0;
+            avma = ltop; return mkvecsmall2(-1, ell); //gen_0;
           }
         }
       }
@@ -1660,7 +1662,7 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
             err_printf("Match and sort for %Ps possibilities.\n", max_traces);
           grp = get_FqE_group(&E,a4,a6,T,p);
           res = match_and_sort(cat, TR_mod, TR, q, E, grp);
-          return gerepileuptoint(ltop, res);
+          return gerepileuptoint(ltop, mkvec2(mkvec2(gen_0, gen_0), res));
         }
       }
     }
@@ -1684,5 +1686,5 @@ ellsea(GEN E, GEN p, long smallfact)
   GEN a6 = modii(mulis(Rg_to_Fp(gel(E,11), p), -54), p);
   GEN card = Fp_ellcard_SEA(a4, a6, p, smallfact);
   if (!card) pari_err_PACKAGE("seadata");
-  return gerepileuptoint(av, subii(addis(p,1),card));
+  return gerepilecopy(av, card);
 }
