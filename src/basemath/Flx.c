@@ -218,6 +218,17 @@ ZX_to_Flx(GEN x, ulong p)
   return Flx_renormalize(a,lx);
 }
 
+/* return x[0 .. dx] mod p as t_VECSMALL. Assume x a t_POL*/
+GEN
+zx_to_Flx(GEN x, ulong p)
+{
+  long i, lx = lg(x);
+  GEN a = cgetg(lx, t_VECSMALL);
+  a[1] = x[1];
+  for (i=2; i<lx; i++) uel(a,i) = umodsu(x[i], p);
+  return Flx_renormalize(a,lx);
+}
+
 ulong
 Rg_to_Fl(GEN x, ulong p)
 {
@@ -3102,6 +3113,16 @@ Fly_to_FlxY(GEN B, long sv)
   for (i=2; i<lb; i++)
     gel(b,i) = Fl_to_Flx(B[i], sv);
   return FlxX_renormalize(b, lb);
+}
+
+GEN
+zxX_to_FlxX(GEN B, ulong p)
+{
+  long i, lb = lg(B);
+  GEN b = cgetg(lb,t_POL);
+  for (i=2; i<lb; i++)
+    gel(b,i) = zx_to_Flx(gel(B,i), p);
+  b[1] = B[1]; return FlxX_renormalize(b, lb);
 }
 
 GEN

@@ -632,6 +632,52 @@ FpE_tatepairing(GEN P, GEN Q, GEN m, GEN a4, GEN p)
 
 /***********************************************************************/
 /**                                                                   **/
+/**                   CM by principal order                           **/
+/**                                                                   **/
+/***********************************************************************/
+
+/* is jn/jd = J (mod p) */
+static int
+is_CMj(long J, GEN jn, GEN jd, GEN p)
+{ return remii(subii(mulis(jd,J), jn), p) == gen_0; }
+#ifndef LONG_IS_64BIT
+/* is jn/jd = -(2^32 a + b) (mod p) */
+static int
+u2_is_CMj(ulong a, ulong b, GEN jn, GEN jd, GEN p)
+{
+  GEN mJ = uu32toi(a,b);
+  return remii(addii(mulii(jd,mJ), jn), p) == gen_0;
+}
+#endif
+
+static long
+Fp_ellj_get_CM(GEN jn, GEN jd, GEN p)
+{
+#define CHECK(CM,J) if (is_CMj(J,jn,jd,p)) return CM;
+  CHECK(-3,  0);
+  CHECK(-4,  1728);
+  CHECK(-7,  -3375);
+  CHECK(-8,  8000);
+  CHECK(-11, -32768);
+  CHECK(-12, 54000);
+  CHECK(-16, 287496);
+  CHECK(-19, -884736);
+  CHECK(-27, -12288000);
+  CHECK(-28, 16581375);
+  CHECK(-43, -884736000);
+#ifdef LONG_IS_64BIT
+  CHECK(-67, -147197952000);
+  CHECK(-163, -262537412640768000);
+#else
+  if (u2_is_CMj(0x00000022UL,0x45ae8000UL,jn,jd,p)) return -67;
+  if (u2_is_CMj(0x03a4b862UL,0xc4b40000UL,jn,jd,p)) return -163;
+#endif
+#undef CHECK
+  return 0;
+}
+
+/***********************************************************************/
+/**                                                                   **/
 /**                            issupersingular                        **/
 /**                                                                   **/
 /***********************************************************************/
@@ -649,32 +695,15 @@ modpoly2(void)
   return mkpoln(4, gen_1, a2, a1, a0);
 }
 
-INLINE ulong
-sum_of_linear_multiplicities(GEN famat)
+/* assume x reduced mod p, monic. Return one root, or NULL if irreducible */
+static GEN
+FqX_quad_root(GEN x, GEN T, GEN p)
 {
-  GEN factors = gel(famat, 1);
-  GEN multiplicities = gel(famat, 2);
-  long sum = 0, lgfactors = lg(factors), i;
-  for (i = 1; i < lgfactors; ++i) {
-    if (degree(gel(factors, i)) == 1)
-      sum += multiplicities[i];
-  }
-  return sum;
-}
-
-INLINE GEN
-roots_from_famat(GEN famat, GEN T, GEN p)
-{
-  GEN factors = gel(famat, 1);
-  ulong lgfactors = lg(factors), i;
-  GEN roots = vectrunc_init(lgfactors);
-  for (i = 1; i < lgfactors; ++i) {
-    if (degree(gel(factors, i)) == 1) {
-      GEN rt = Fq_neg(constant_term(gel(factors, i)), T, p);
-      vectrunc_append(roots, rt);
-    }
-  }
-  return roots;
+  GEN b = gel(x,3), c = gel(x,2);
+  GEN D = Fq_sub(Fq_sqr(b, T, p), Fq_mulu(c,4, T, p), T, p);
+  GEN s = Fq_sqrt(D,T, p);
+  if (!s) return NULL;
+  return Fq_Fp_mul(Fq_sub(s, b, T, p), shifti(addis(p, 1),-1),T, p);
 }
 
 /*
@@ -686,45 +715,34 @@ static long
 path_extends_to_floor(GEN j_prev, GEN j, GEN T, GEN p, GEN Phi2, ulong max_len)
 {
   pari_sp ltop = avma;
-  GEN famat;
+  GEN Phi2_j;
   ulong mult, d;
 
   /* A path made its way to the floor if (i) its length was cut off
    * before reaching max_path_len, or (ii) it reached max_path_len but
    * only has one neighbour. */
   for (d = 1; d < max_len; ++d) {
-    GEN Phi2_j, famat, nbrs;
-    ulong deg_m1, n_nbrs;
+    GEN j_next;
 
     Phi2_j = FqX_div_by_X_x(FqXY_evalx(Phi2, j, T, p), j_prev, T, p, NULL);
-    famat = FqX_factor(Phi2_j, T, p);
-    deg_m1 = sum_of_linear_multiplicities(famat);
-
-    if (deg_m1 == 0) {
-      /* j is on the floor */
+    j_next = FqX_quad_root(Phi2_j, T, p);
+    if (!j_next)
+    { /* j is on the floor */
       avma = ltop;
       return 1;
     }
 
-    nbrs = roots_from_famat(famat, T, p);
-    n_nbrs = lg(nbrs) - 1;
-    if (n_nbrs == 0) {
-      /* Nowhere to go but not yet on the floor. */
-      pari_err_BUG("path_extends_to_floor");
-    }
-
-    j_prev = j;
-    j = gel(nbrs, random_Fl(n_nbrs) + 1);
+    j_prev = j; j = j_next;
     if (gc_needed(ltop, 2))
       gerepileall(ltop, 2, &j, &j_prev);
   }
 
   /* Check that we didn't end up at the floor on the last step (j will
    * point to the last element in the path. */
-  famat = FqX_factor(FqXY_evalx(Phi2, j, T, p), T, p);
-  mult = sum_of_linear_multiplicities(famat);
+  Phi2_j = FqX_div_by_X_x(FqXY_evalx(Phi2, j, T, p), j_prev, T, p, NULL);
+  mult = FqX_nbroots(Phi2_j, T, p);
   avma = ltop;
-  return mult == 1 ? 1 : 0;
+  return mult == 0;
 }
 
 static int
@@ -732,18 +750,19 @@ jissupersingular(GEN j, GEN S, GEN p)
 {
   long max_path_len = expi(p)+1;
   GEN Phi2 = FpXX_red(modpoly2(), p);
-  GEN famat = FqX_factor(FqXY_evalx(Phi2, j, S, p), S, p);
-  long deg = sum_of_linear_multiplicities(famat);
+  GEN Phi2_j = FqXY_evalx(Phi2, j, S, p);
+  GEN roots = FqX_roots(Phi2_j, S, p);
+  long nbroots = lg(roots)-1;
   int res = 1;
 
   /* Every node in a supersingular L-volcano has L + 1 neighbours. */
-  if (deg < 2+1)
+  /* Note: a multiple root only occur when j has CM by sqrt(-15). */
+  if (nbroots==0 || (nbroots==1 && FqX_is_squarefree(Phi2_j, S, p)))
     res = 0;
   else {
-    GEN nhbrs = roots_from_famat(famat, S, p);
-    long i, l = lg(nhbrs);
+    long i, l = lg(roots);
     for (i = 1; i < l; ++i) {
-      if (path_extends_to_floor(j, gel(nhbrs, i), S, p, Phi2, max_path_len)) {
+      if (path_extends_to_floor(j, gel(roots, i), S, p, Phi2, max_path_len)) {
         res = 0;
         break;
       }
@@ -758,10 +777,14 @@ int
 Fp_elljissupersingular(GEN j, GEN p)
 {
   pari_sp ltop = avma;
-  GEN S = init_Fq(p, 2, MAXVARN);
-  int res = jissupersingular(j, S, p);
-  avma = ltop;
-  return res;
+  long CM = Fp_ellj_get_CM(j, gen_1, p);
+  if (CM < 0) return krosi(CM, p) < 0;
+  else
+  {
+    GEN S = init_Fq(p, 2, MAXVARN);
+    int res = jissupersingular(j, S, p);
+    avma = ltop; return res;
+  }
 }
 
 /***********************************************************************/
@@ -1266,19 +1289,6 @@ ap_cm(int CM, long A6B, GEN a6, GEN p)
   if (kronecker(mulis(a6,A6B), p) < 0) s = -s;
   return s > 0? a: negi(a);
 }
-/* is jn/jd = J (mod p) */
-static int
-is_CMj(long J, GEN jn, GEN jd, GEN p)
-{ return remii(subii(mulis(jd,J), jn), p) == gen_0; }
-#ifndef LONG_IS_64BIT
-/* is jn/jd = -(2^32 a + b) (mod p) */
-static int
-u2_is_CMj(ulong a, ulong b, GEN jn, GEN jd, GEN p)
-{
-  GEN mJ = uu32toi(a,b);
-  return remii(addii(mulii(jd,mJ), jn), p) == gen_0;
-}
-#endif
 static GEN
 ec_ap_cm(int CM, GEN a4, GEN a6, GEN p)
 {
@@ -1309,30 +1319,16 @@ Fl_elltrace_CM(int CM, ulong a4, ulong a6, ulong p)
   a = ec_ap_cm(CM, utoi(a4), utoi(a6), utoipos(p));
   avma = av; return itos(a);
 }
+
 static GEN
 CM_ellap(GEN a4, GEN a6, GEN jn, GEN jd, GEN p)
 {
-#define CHECK(CM,J) if (is_CMj(J,jn,jd,p)) return ec_ap_cm(CM,a4,a6,p);
+  long CM;
   if (!signe(a4)) return ap_j0(a6,p);
   if (!signe(a6)) return ap_j1728(a4,p);
-  CHECK(-7,  -3375);
-  CHECK(-8,  8000);
-  CHECK(-12, 54000);
-  CHECK(-11, -32768);
-  CHECK(-16, 287496);
-  CHECK(-19, -884736);
-  CHECK(-27, -12288000);
-  CHECK(-28, 16581375);
-  CHECK(-43, -884736000);
-#ifdef LONG_IS_64BIT
-  CHECK(-67, -147197952000);
-  CHECK(-163, -262537412640768000);
-#else
-  if (u2_is_CMj(0x00000022UL,0x45ae8000UL,jn,jd,p)) return ec_ap_cm(-67,a4,a6,p);
-  if (u2_is_CMj(0x03a4b862UL,0xc4b40000UL,jn,jd,p)) return ec_ap_cm(-163,a4,a6,p);
-#endif
-#undef CHECK
-  return NULL;
+  CM = Fp_ellj_get_CM(jn, jd, p);
+  if (CM < 0) return ec_ap_cm(CM,a4,a6,p);
+  else return NULL;
 }
 
 static GEN

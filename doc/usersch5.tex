@@ -2899,6 +2899,9 @@ as in the \kbd{div} functions.
 \fun{long}{smodss}{long x, long y} computes the true Euclidean
 remainder of the \kbd{long}~\kbd{x} by a \kbd{long}~\kbd{y}.
 
+\fun{ulong}{umodsu}{long x, ulong y} computes the true Euclidean
+remainder of the \kbd{long}~\kbd{x} by a \kbd{ulong}~\kbd{y}.
+
 \fun{ulong}{umodiu}{GEN x, ulong y} computes the true Euclidean
 remainder of the \typ{INT}~\kbd{x} by the \kbd{ulong}~\kbd{y}.
 
@@ -5857,6 +5860,9 @@ called on the tree leaves.
 \fun{GEN}{ZXX_to_FlxX}{GEN B, ulong p, long v}, as \kbd{ZX\_to\_Flx},
 repeatedly called on the polynomial's coefficients.
 
+\fun{GEN}{zxX_to_FlxC}{GEN z, ulong p} as \kbd{zx\_to\_Flx},
+repeatedly called on the polynomial's coefficients.
+
 \fun{GEN}{ZXXV_to_FlxXV}{GEN V, ulong p, long v}, as \kbd{ZXX\_to\_FlxX},
 repeatedly called on the vector's coefficients.
 
@@ -5914,7 +5920,10 @@ vector of polynomials with \typ{INT} coefficients (repeated calls to
 polynomials with \typ{INT} coefficients (repeated calls to \kbd{Flx\_to\_ZX}).
 
 \fun{GEN}{zx_to_ZX}{GEN z}, as \kbd{Flx\_to\_ZX}, without assuming
-coefficients are non-negative.
+the coefficients to be non-negative.
+
+\fun{GEN}{zx_to_Flx}{GEN z, ulong p} as \kbd{Flx\_red} without assuming
+the coefficients to be non-negative.
 
 \fun{GEN}{Flc_to_ZC}{GEN z}, converts to \kbd{ZC} (\typ{COL} of non-negative
 \typ{INT}s in this case)

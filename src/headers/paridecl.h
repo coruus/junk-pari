@@ -345,6 +345,8 @@ const struct bb_field *get_Flxq_field(void **E, GEN T, ulong p);
 GEN     pol1_FlxX(long v, long sv);
 GEN     polx_FlxX(long v, long sv);
 GEN     random_Flx(long d1, long v, ulong p);
+GEN     zx_to_Flx(GEN x, ulong p);
+GEN     zxX_to_FlxX(GEN B, ulong p);
 GEN     zxX_to_Kronecker(GEN P, GEN Q);
 
 /* FlxqE.c */
@@ -1277,6 +1279,7 @@ GEN     primeform_u(GEN x, ulong p);
 GEN     qfbcompraw(GEN x, GEN y);
 GEN     qfbpowraw(GEN x, long n);
 GEN     qfbred0(GEN x, long flag, GEN D, GEN isqrtD, GEN sqrtD);
+GEN     qfbredsl2(GEN q, GEN S);
 GEN     qfbsolve(GEN Q, GEN n);
 GEN     qfi(GEN x, GEN y, GEN z);
 GEN     qfi_1(GEN x);
@@ -3865,6 +3868,7 @@ INLINE GEN    truedivii(GEN a,GEN b);
 INLINE GEN    truedivis(GEN a, long b);
 INLINE GEN    truedivsi(long a, GEN b);
 INLINE ulong  udivui_rem(ulong x, GEN y, ulong *rem);
+INLINE ulong  umodsu(long x, ulong y);
 INLINE ulong  umodui(ulong x, GEN y);
 INLINE GEN    utoi(ulong x);
 INLINE GEN    utoineg(ulong x);

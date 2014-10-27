@@ -938,7 +938,7 @@ randomprime(GEN N)
       b = subiu(N,1); /* between 2 and N-1 */
       d = subiu(N,2);
       if (signe(d) <= 0)
-        pari_err_DOMAIN("randomprime","N", "<", gen_2, N);
+        pari_err_DOMAIN("randomprime","N", "<=", gen_2, N);
       break;
     case t_VEC:
       if (lg(N) != 3) pari_err_TYPE("randomprime",N);
@@ -1221,7 +1221,11 @@ primes_interval_zv(ulong a, ulong b)
   if (!a) return primes_upto_zv(b);
   if (b < a) return cgetg(1, t_VECSMALL);
   d = b - a;
-  if (d > 100000UL) d = (ulong)(primepi_upper_bound(b)-primepi_lower_bound(a));
+  if (d > 100000UL)
+  {
+    ulong D = (ulong)ceil(primepi_upper_bound(b)-primepi_lower_bound(a));
+    if (D < d) d = D;
+  }
   return primes_interval_i(a, b, d);
 }
 GEN

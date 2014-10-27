@@ -83,6 +83,8 @@ BA 60- ellcard over non-prime fields of large char could return wrong results
    62- weber(1+I) was missing its imaginary part
    63- (1+I)*(1+1/2*I) => wrong result (type errors) [#1619]
    64- contfracpnqn([a]) => [1,a;0,1] instead of [a,1;1,0]
+   65- primes([2^50, 2^50+200000]) => stack overflow
+   66- issquare((x+1/2)^2,&z); z => 1.0*x+0.5 instead of x+1/2
 
   Added
     1- add optional argument to sumdigits to specify the base
@@ -153,10 +155,12 @@ HIL52- [libpari] functions Fl_powers_pre, Fl_ellj_pre, Fl_elltwist
 BA 53- [libpari] functions Fl_powers, Fp_powers, Fl_ellj,
                            Fl_ellj_to_a4a6, Flxq_ellj_to_a4a6
 BA 54- [libpari] functions FpXQX_div_by_X_x, FqX_div_by_X_x
-HIL55- [libpari] function Flx_oneroot_split
+HIL55- [libpari] function Flx_oneroot_split, zxX_to_FlxX
 BA 56- [libpari] functions Flv_inv_pre, Flv_inv_inplace, Flv_inv_inplace_pre
 HIL57- GP function ellissupersingular
 HIL58- [libpari] functions Fp_elljissupersingular, FpXQ_elljissupersingular,
+BA 59- [libpari] function umodsu, zx_to_Flx
+   60- GP function qfbredsl2
 
   Changed
     1- make log(+/-I) return (+/-)Pi/2*I with gen_0 real part [#1556]
@@ -214,6 +218,8 @@ BA 25- setrand now return a (huge) integer instead of a vecsmall
        (2007). See PARI_OLD_NAMES.
    32- default 'strictmatch' has been obsoleted. It is now a no-op.
    33- default 'compatible' has been obsoleted. It is now a no-op.
+   34- zeta(odd integer): use Borwein's "sumalt" algorithm (10 times faster
+       than previous at \p1000)
 
 Removed
    1- deprecated functions nfbasis0, nfdisc0, factorpadic0
