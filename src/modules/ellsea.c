@@ -572,7 +572,7 @@ find_kernel(GEN a4, GEN a6, ulong ell, GEN a4t, GEN a6t, GEN pp1, GEN T, GEN p, 
     gel(v, k) = Zq_Z_div_safe(Fq_sub(gel(V, k-2), s, T, p), gel(P, j), T, p, pp, e);
     if (gc_needed(btop, 1))
     {
-      if(DEBUGMEM>1) pari_warn(warnmem,"find_kernel");
+      if(DEBUGMEM) pari_warn(warnmem,"find_kernel");
       gerepileall(btop, 2, &v, &P);
     }
   }
@@ -850,7 +850,7 @@ static GEN
 Flxq_study_eqn(long ell, GEN mpoly, GEN T, ulong p, long *pt_dG, long *pt_r)
 {
   GEN Xq = FlxqX_Frobenius(mpoly, T, p);
-  GEN G  = FlxqX_gcd(FlxX_sub(Xq, pol_x(0), p), mpoly, T, p);
+ GEN G  = FlxqX_gcd(FlxX_sub(Xq, pol_x(0), p), mpoly, T, p);
   *pt_dG = degpol(G);
   if (!*pt_dG)
   {
@@ -950,7 +950,7 @@ find_trace_Elkies_power(GEN a4, GEN a6, ulong ell, long k, struct meqn *MEQN, GE
   ulong lambda, ellk = upowuu(ell, k), pellk = umodiu(q, ellk);
   long cnt;
 
-  if (DEBUGLEVEL) { err_printf("Trace mod %ld", ell); }
+  if (DEBUGLEVEL) { err_printf("Trace mod %ld\n", ell); }
   Eba4 = a4;
   Eba6 = a6;
   tmp = find_isogenous(a4,a6, ell, MEQN, g, T, p);
@@ -983,7 +983,7 @@ find_trace_Elkies_power(GEN a4, GEN a6, ulong ell, long k, struct meqn *MEQN, GE
     Ib = gel(tmp, 5);
     if (gc_needed(btop, 1))
     {
-      if(DEBUGMEM>1) pari_warn(warnmem,"find_trace_Elkies_power");
+      if(DEBUGMEM) pari_warn(warnmem,"find_trace_Elkies_power");
       gerepileall(btop, 6, &Eba4, &Eba6, &Eca4, &Eca6, &kpoly, &Ib);
     }
     if (DEBUGLEVEL>1) err_printf(" [%ld ms]", timer_delay(ti));
@@ -1067,7 +1067,7 @@ find_trace(GEN a4, GEN a6, ulong ell, GEN q, GEN T, GEN p, long *ptr_kt, ulong s
   }
   kt = k;
   if (!get_modular_eqn(&MEQN, ell, 0, MAXVARN)) err_modular_eqn(ell);
-  if (DEBUGLEVEL)
+  if (DEBUGLEVEL > 3)
   { err_printf("Process prime %5ld. ", ell); timer_start(&ti); }
   meqnj = FqXY_evalx(MEQN.eq, Fq_ellj(a4, a6, T, p), T, p);
   g = study_modular_eqn(ell, meqnj, T, p, &mt, &r);
@@ -1457,7 +1457,7 @@ MATCH_RESTART:
     table[i] = grp->hash(gel(point,1));
     if (gc_needed(av1,3))
     {
-      if(DEBUGMEM>1) pari_warn(warnmem,"match_and_sort, baby = %ld", i);
+      if(DEBUGMEM) pari_warn(warnmem,"match_and_sort, baby = %ld", i);
       point = gerepileupto(av1, point);
     }
   }
@@ -1504,7 +1504,7 @@ MATCH_RESTART:
     point = grp->mul(E,point, gel(pre, ZV_search(diff, d)));
     if (gc_needed(av1,3))
     {
-      if(DEBUGMEM>1) pari_warn(warnmem,"match_and_sort, giant = %ld", i);
+      if(DEBUGMEM) pari_warn(warnmem,"match_and_sort, giant = %ld", i);
       point = gerepileupto(av1, point);
     }
   }
@@ -1547,7 +1547,7 @@ get_FqE_group(void ** pt_E, GEN a4, GEN a6, GEN T, GEN p)
 GEN
 Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
 {
-  const long MAX_ATKIN = 21;
+  const long MAX_ATKIN = 10;
   pari_sp ltop = avma, btop;
   long ell, i, nb_atkin;
   GEN TR, TR_mod, compile_atkin, bound, bound_bsgs, champ;
@@ -1556,6 +1556,9 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
   const double growth_factor = 1.26;
   forprime_t TT;
   void *E;
+
+  int twisttoo = smallfact < 0;
+  smallfact = smallfact > 0 ? smallfact : -smallfact;
 
   if (!modular_eqn && !get_seadata(0)) return NULL;
   if (T && get_FpX_var(T)==0) /* 0 is used by the modular polynomial */
@@ -1582,7 +1585,7 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
   if (smallfact == 1 && !mpodd(TR))
   {
     if (DEBUGLEVEL) err_printf("Aborting: #E(Fq) divisible by 2\n");
-    avma = ltop; return gen_0;
+    avma = ltop; return gerepilecopy(ltop, mkvecsmall2(1, 2));
   }
 
   /* compile_atkin is a vector containing informations about Atkin primes,
@@ -1612,20 +1615,36 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
         {
           if (DEBUGLEVEL)
             err_printf("\nAborting: #E(Fq) divisible by %ld\n",ell);
-          avma = ltop; return gen_0;
+          avma = ltop; return gerepilecopy(ltop, mkvecsmall2(1, ell)); //return gen_0;
+        }
+        if (twisttoo)
+        { /* does ell divide q + 1 + t ? */
+          long card_mod_ell = (umodiu(q,ell) + 1 + t_mod_ellkt) % ell ;
+          if (!card_mod_ell)
+          {
+            if (DEBUGLEVEL)
+              err_printf("\nAborting: #Et(Fq) divisible by %ld\n",ell);
+            avma = ltop; return gerepilecopy(ltop, mkvecsmall2(-1, -ell)); //gen_0;
+          }
         }
       }
       (void)Z_incremental_CRT(&TR, t_mod_ellkt, &TR_mod, ellkt);
     }
     else
     {
+      if (DEBUGLEVEL>1 || (DEBUGLEVEL && (nb_atkin > 15))) {
+        err_printf("\nCompiling Atkin prime #%lu\n", nb_atkin);
+//        err_printf("\nAtkin #%lu: ellkt=%ls, trace_mod=%Gs, prod_atkin=%G\n");
+      }
       add_atkin(compile_atkin, mkvec2(utoipos(ellkt), trace_mod), &nb_atkin);
       prod_atkin = value(-1, compile_atkin, nb_atkin);
     }
     if (cmpii(mulii(TR_mod, prod_atkin), bound) > 0)
     {
+      if (DEBUGLEVEL)
+        err_printf("\nsufficient bound, %x, %x\n", TR_mod, prod_atkin);
       GEN bound_tr;
-      if (!nb_atkin) return gerepileuptoint(ltop, subii(addis(q, 1), TR));
+      if (!nb_atkin) return gerepilecopy(ltop, mkvec2(gen_0, TR));
       bound_tr = mulrr(bound_bsgs, dbltor(bound_gr));
       bound_gr *= growth_factor;
       if (signe(max_traces))
@@ -1649,7 +1668,7 @@ Fq_ellcard_SEA(GEN a4, GEN a6, GEN q, GEN T, GEN p, long smallfact)
             err_printf("Match and sort for %Ps possibilities.\n", max_traces);
           grp = get_FqE_group(&E,a4,a6,T,p);
           res = match_and_sort(cat, TR_mod, TR, q, E, grp);
-          return gerepileuptoint(ltop, res);
+          return gerepilecopy(ltop, mkvec2(gen_0, subii(addis(p,1),res)));
         }
       }
     }
@@ -1673,5 +1692,5 @@ ellsea(GEN E, GEN p, long smallfact)
   GEN a6 = modii(mulis(Rg_to_Fp(gel(E,11), p), -54), p);
   GEN card = Fp_ellcard_SEA(a4, a6, p, smallfact);
   if (!card) pari_err_PACKAGE("seadata");
-  return gerepileuptoint(av, subii(addis(p,1),card));
+  return gerepilecopy(av, card);
 }

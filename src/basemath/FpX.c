@@ -1084,7 +1084,7 @@ FpX_invBarrett(GEN T, GEN p)
 
 GEN
 FpX_get_red(GEN T, GEN p)
-{
+{ if (T == NULL) return NULL;
   if (typ(T)==t_POL && lg(T)>FpX_BARRETT_LIMIT)
     retmkvec2(FpX_invBarrett(T,p),T);
   return T;
