@@ -32,8 +32,7 @@ struct bg_data
   GEN E, N; /* ell, conductor */
   GEN bnd; /* t_INT; will need all an for n <= bnd */
   ulong rootbnd; /* sqrt(bnd) */
-  GEN an; /* t_VECSMALL: cache of ap, n <= rootbnd */
-  GEN ap; /* t_VECSMALL: cache of ap, p <= rootbnd */
+  GEN an; /* t_VECSMALL: cache of an, n <= rootbnd */
   GEN p;  /* t_VECSMALL: primes <= rootbnd */
 };
 
@@ -63,7 +62,7 @@ gen_BG_add(void *E, bg_fun *fun, struct bg_data *bg, GEN n, long i, GEN a, GEN l
     ulong p = bg->p[j];
     GEN nexta, pn = mului(p, n);
     if (cmpii(pn, bg->bnd) > 0) return;
-    nexta = mulis(a, bg->ap[j]);
+    nexta = mulis(a, bg->an[p]);
     if (i == j && umodiu(bg->N, p)) nexta = subii(nexta, mului(p, lasta));
     gen_BG_add(E, fun, bg, pn, j, nexta, a);
     avma = av;
@@ -71,26 +70,14 @@ gen_BG_add(void *E, bg_fun *fun, struct bg_data *bg, GEN n, long i, GEN a, GEN l
 }
 
 static void
-gen_BG_init(struct bg_data *bg, GEN E, GEN N, GEN bnd, GEN ap)
+gen_BG_init(struct bg_data *bg, GEN E, GEN N, GEN bnd)
 {
-  pari_sp av;
-  long i = 1, l;
-  bg->E = E; bg->N = N;
+  bg->E = E;
+  bg->N = N;
   bg->bnd = bnd;
   bg->rootbnd = itou(sqrtint(bnd));
   bg->p = primes_upto_zv(bg->rootbnd);
-  l = lg(bg->p);
-  if (ap)
-  { /* reuse known values */
-    i = lg(ap);
-    bg->ap = vecsmall_lengthen(ap, maxss(l,i)-1);
-  }
-  else bg->ap = cgetg(l, t_VECSMALL);
-  av = avma;
-  for (  ; i < l; i++, avma = av) bg->ap[i] = itos(ellap(E, utoipos(bg->p[i])));
-  avma = av;
-  bg->an = zero_zv(bg->rootbnd);
-  bg->an[1] = 1;
+  bg->an = anellsmall(E, bg->rootbnd);
 }
 
 static void
@@ -108,7 +95,7 @@ gen_BG_rec(void *E, bg_fun *fun, struct bg_data *bg)
   for (i = 1; i <= lp; i++)
   {
     ulong pp = bg->p[i];
-    long ap = bg->ap[i];
+    long ap = bg->an[pp];
     gen_BG_add(E, fun, bg, utoipos(pp), i, stoi(ap), gen_1);
     avma = av2;
   }
@@ -179,12 +166,12 @@ param_points(GEN N, double Y, double tmax, long bprec, long *cprec, long *L,
   double D, a, aY, X, logM;
   long d = 2, w = 1;
   tmax *= d;
-  D = bprec * LOG2 + PI/4*tmax + 2;
+  D = bprec * LOG2 + M_PI/4*tmax + 2;
   *cprec = nbits2prec(ceil(D / LOG2) + 5);
-  a = 2 * PI / sqrt(gtodouble(N));
-  aY = a * cos(PI/2*Y);
-  logM = log(4) + logboundG0(w+1, aY) + tmax * Y * PI/2;
-  *h = ( 2 * PI * PI / 2 * Y ) / ( D + logM );
+  a = 2 * M_PI / sqrt(gtodouble(N));
+  aY = a * cos(M_PI/2*Y);
+  logM = log(4) + logboundG0(w+1, aY) + tmax * Y * M_PI/2;
+  *h = ( 2 * M_PI * M_PI / 2 * Y ) / ( D + logM );
   X = log( D / a);
   *L = ceil( X / *h);
   *K = ceil_safe(dbltor( D / a ));
@@ -295,7 +282,7 @@ vecF2_lk_bsgs(GEN E, GEN bnd, GEN rbnd, GEN Q, GEN sleh, GEN N, long prec)
   long k, L = lg(bnd)-1;
   GEN S;
   baby_init(&bb, Q, bnd, rbnd, prec);
-  gen_BG_init(&bg, E, N, gel(bnd,1), NULL);
+  gen_BG_init(&bg, E, N, gel(bnd,1));
   gen_BG_rec((void*) &bb, ellL1_add, &bg);
   S = cgetg(L+1, t_VEC);
   for (k = 1; k <= L; ++k)
@@ -393,7 +380,7 @@ ellgammafactor(GEN N, GEN s, long prec)
 static GEN
 ellL1_eval(GEN e, GEN vec, struct lcritical *C, GEN t, long prec)
 {
-  GEN gam = ellgammafactor(ellQ_get_N(e), gaddgs(t, 1), prec);
+  GEN gam = ellgammafactor(ellQ_get_N(e), gaddgs(gmul(gen_I(),t), 1), prec);
   return gdiv(Llambda(vec, C, t, prec), gam);
 }
 
@@ -401,7 +388,7 @@ static GEN
 ellL1_der(GEN e, GEN vec, struct lcritical *C, GEN t, long der, long prec)
 {
   GEN r = polcoeff0(ellL1_eval(e, vec, C, t, prec), der, 0);
-  if (odd(der>>1)) r = gneg(r);
+  r = gdiv(r,gpowgs(gen_I(), C->real == 1 ? der: der-1));
   return gmul(r, mpfact(der));
 }
 
@@ -572,7 +559,7 @@ heegner_psi(GEN E, GEN N, GEN points, long bitprec)
   }
   gerepileall(av2, 2, &bnd, &Q);
   bndmax = gel(bnd,vecindexmax(bnd));
-  gen_BG_init(&bg, E, N, bndmax, NULL);
+  gen_BG_init(&bg, E, N, bndmax);
   if (bitprec >= 1900)
   {
     GEN S;
@@ -953,7 +940,7 @@ twistcurve(GEN e, GEN D)
   GEN D2 = sqri(D);
   GEN a4 = mulii(mulsi(-27, D2), ell_get_c4(e));
   GEN a6 = mulii(mulsi(-54, mulii(D, D2)), ell_get_c6(e));
-  return ellinit(mkvec2(a4,a6),NULL,0);
+  return ellinit(mkvec2(a4,a6),NULL,DEFAULTPREC);
 }
 
 static GEN

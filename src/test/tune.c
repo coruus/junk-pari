@@ -38,7 +38,7 @@ GEN LARGE_mod;
 
 typedef struct {
   ulong reps, type;
-  long *var, *var_disable, size, enabled;
+  long *var, *var_disable, *var_enable, var_enable_min,  size, enabled;
   GEN x, y;
   ulong l;
   GEN p;
@@ -57,6 +57,7 @@ typedef struct {
   double            step_factor; /* how much to step sizes (rounded down) */
   double            stop_factor;
   long              *var_disable;
+  long              *var_enable;
 } tune_param;
 
 /* ========================================================== */
@@ -125,13 +126,16 @@ rand_NFlx(long n, ulong l)
   return gerepileuptoleaf(av, x);
 }
 
-#define t_Fhx   99
-#define t_Flx  100
-#define t_Fl1x 101
-#define t_Fl2x 102
-#define t_NFlx 103
-#define t_FpX  104
-#define t_NFpX 105
+#define t_Fhx   100
+#define t_Flx   101
+#define t_Fl1x  102
+#define t_Fl2x  103
+#define t_NFhx  110
+#define t_NFlx  111
+#define t_NFl1x 112
+#define t_NFl2x 113
+#define t_FpX   200
+#define t_NFpX  210
 
 static GEN
 rand_g(long n, long type)
@@ -143,7 +147,10 @@ rand_g(long n, long type)
     case t_Flx:  return rand_Flx(n,DFLT_mod);
     case t_Fl1x: return rand_Flx(n,DFLT_mod1);
     case t_Fl2x: return rand_Flx(n,DFLT_mod2);
+    case t_NFhx: return rand_NFlx(n,DFLT_hmod);
     case t_NFlx: return rand_NFlx(n,DFLT_mod);
+    case t_NFl1x: return rand_NFlx(n,DFLT_mod1);
+    case t_NFl2x: return rand_NFlx(n,DFLT_mod2);
     case t_FpX:  return rand_FpX(n);
     case t_NFpX: return rand_NFpX(n);
   }
@@ -158,7 +165,10 @@ dftmod(speed_param *s)
     case t_Flx:  s->l=DFLT_mod;  return;
     case t_Fl1x: s->l=DFLT_mod1; return;
     case t_Fl2x: s->l=DFLT_mod2; return;
+    case t_NFhx: s->l=DFLT_hmod;  return;
     case t_NFlx: s->l=DFLT_mod;  return;
+    case t_NFl1x: s->l=DFLT_mod1;  return;
+    case t_NFl2x: s->l=DFLT_mod2;  return;
     case t_FpX:  s->p=LARGE_mod; return;
     case t_NFpX: s->p=LARGE_mod; return;
   }
@@ -176,6 +186,7 @@ dftmod(speed_param *s)
   return speed_endtime();                \
 }
 
+#define m_menable(s,var,min) (*(s->var)=minss(lg(s->x)-2,s->min))
 #define  m_enable(s,var) (*(s->var)=lg(s->x)-2)/* enable  asymptotically fastest */
 #define m_disable(s,var) (*(s->var)=lg(s->x)+1)/* disable asymptotically fastest */
 
@@ -183,12 +194,14 @@ static void enable(speed_param *s)
 {
   m_enable(s,var); s->enabled = 1;
   if (s->var_disable) m_disable(s,var_disable);
+  if (s->var_enable) m_menable(s,var_enable,var_enable_min);
 }
 
 static void disable(speed_param *s)
 {
   m_disable(s,var); s->enabled = 0;
   if (s->var_disable) m_disable(s,var_disable);
+  if (s->var_enable) m_menable(s,var_enable,var_enable_min);
 }
 
 static double speed_mulrr(speed_param *s)
@@ -330,11 +343,32 @@ static tune_param param[] = {
 {0,   var(Flx_SQR_SQRI_LIMIT),     t_Fl1x,5,0, speed_Flx_sqr},
 {0,   var(Flx_MUL_MULII2_LIMIT),   t_Fl2x,5,20000, speed_Flx_mul,0.05},
 {0,   var(Flx_SQR_SQRI2_LIMIT),    t_Fl2x,5,20000, speed_Flx_sqr,0.05},
-{0,   var(Flx_INVBARRETT_LIMIT),  t_NFlx,10,0, speed_Flx_inv,0.05},
+{0,  var(Flx_INVBARRETT_KARATSUBA_LIMIT), t_NFlx,5,20000,
+            speed_Flx_inv,0,0,&Fmod_MUL_MULII_LIMIT,&Flx_MUL_KARATSUBA_LIMIT},
+{0,  var(Flx_INVBARRETT_HALFMULII_LIMIT), t_NFhx,5,0,
+            speed_Flx_inv,0,0,NULL,&Flx_MUL_HALFMULII_LIMIT},
+{0,  var(Flx_INVBARRETT_MULII_LIMIT), t_NFl1x,5,0,
+            speed_Flx_inv,0,0,NULL,&Flx_MUL_MULII_LIMIT},
+{0,  var(Flx_INVBARRETT_MULII2_LIMIT),t_NFl2x,5,0,
+            speed_Flx_inv,0,0,NULL,&Flx_MUL_MULII2_LIMIT},
 {0,  var(Flx_DIVREM_BARRETT_LIMIT),t_NFlx,10,0, speed_Flx_divrem,0.05},
 {0,  var(Flx_REM_BARRETT_LIMIT),  t_NFlx,10,0, speed_Flx_rem,0.05},
-{0,  var(Flx_BARRETT_LIMIT),      t_NFlx,10,0, speed_Flxq_red},
-{0,  var(Flx_HALFGCD_LIMIT),       t_Flx,10,0, speed_Flx_halfgcd},
+{0,  var(Flx_BARRETT_KARATSUBA_LIMIT), t_NFlx,5,0,
+            speed_Flxq_red,0,0,&Fmod_MUL_MULII_LIMIT,&Flx_MUL_KARATSUBA_LIMIT},
+{0,  var(Flx_BARRETT_HALFMULII_LIMIT), t_NFhx,5,0,
+            speed_Flxq_red,0,0,NULL,&Flx_MUL_HALFMULII_LIMIT},
+{0,  var(Flx_BARRETT_MULII_LIMIT), t_NFl1x,5,0,
+            speed_Flxq_red,0,0,NULL,&Flx_MUL_MULII_LIMIT},
+{0,  var(Flx_BARRETT_MULII2_LIMIT),t_NFl2x,5,0,
+            speed_Flxq_red,0,0,NULL,&Flx_MUL_MULII2_LIMIT},
+{0,  var(Flx_HALFGCD_KARATSUBA_LIMIT), t_Flx,10,0,
+            speed_Flx_halfgcd,0,0,&Fmod_MUL_MULII_LIMIT,&Flx_MUL_KARATSUBA_LIMIT},
+{0,  var(Flx_HALFGCD_HALFMULII_LIMIT), t_Fhx,10,0,
+            speed_Flx_halfgcd,0,0,NULL,&Flx_MUL_HALFMULII_LIMIT},
+{0,  var(Flx_HALFGCD_MULII_LIMIT), t_Fl1x,10,0,
+            speed_Flx_halfgcd,0,0,NULL,&Flx_MUL_MULII_LIMIT},
+{0,  var(Flx_HALFGCD_MULII2_LIMIT),t_Fl2x,10,0,
+            speed_Flx_halfgcd,0,0,NULL,&Flx_MUL_MULII2_LIMIT},
 {0,  var(Flx_GCD_LIMIT),           t_Flx,10,0, speed_Flx_gcd,0.1},
 {0,  var(Flx_EXTGCD_LIMIT),        t_Flx,10,0, speed_Flx_extgcd},
 {0,  var(FpX_INVBARRETT_LIMIT),   t_NFpX,10,0, speed_FpX_inv,0.05},
@@ -425,7 +459,7 @@ diag(const char *format, ...)
 }
 void
 print_define(const char *name, long value)
-{ printf("#define __%-25s  %5ld\n", name, value); }
+{ printf("#define __%-30s %ld\n", name, value); }
 
 long
 analyze_dat(int final)
@@ -478,11 +512,13 @@ Test(tune_param *param)
   DEFAULT(stop_factor, 1.2);
   DEFAULT(max_size, 10000);
   if (param->var_disable) save_var_disable = *(param->var_disable);
+  if (param->var_enable)  s.var_enable_min = *(param->var_enable);
 
   s.type = param->type;
   s.size = param->min_size;
   s.var  = param->var;
   s.var_disable  = param->var_disable;
+  s.var_enable  = param->var_enable;
   dftmod(&s);
   ndat = since_positive = since_change = thresh = 0;
   if (option_trace >= 1)
@@ -558,6 +594,7 @@ Test(tune_param *param)
   print_define(param->name, thresh);
   *(param->var) = thresh; /* set to optimal value for next tests */
   if (param->var_disable) *(param->var_disable) = save_var_disable;
+  if (param->var_enable) *(param->var_enable) = s.var_enable_min;
 }
 
 void error(char **argv) {
@@ -588,7 +625,7 @@ main(int argc, char **argv)
   DFLT_hmod = 257;
   DFLT_mod2 = 281474976710677UL;
 #else
-  DFLT_hmod = 17;
+  DFLT_hmod = 3;
   DFLT_mod1 = 1031UL;
 #endif
   v = new_chunk(argc);

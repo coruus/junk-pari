@@ -2,61 +2,54 @@
 _readline_list="readline readline_version RLINCLUDE RLLIBS"
 
 readline=
-if test -n "$with_readline"; then
-  with_readline_lib="$with_readline_lib $with_readline/lib"
-  with_readline_include="$with_readline_include $with_readline/include"
-fi
-pth="$with_readline_lib $libpth"
-lib=readline; . ./locatelib
+case "$with_readline" in
+  yes|"");;
+  *)
+  if test -z "$with_readline_lib"; then
+    with_readline_lib="$with_readline/lib"
+  fi
+  if test -z "$with_readline_include"; then
+    with_readline_include="$with_readline/include"
+  fi;;
+esac
 
 # Readline -- Headers
-pth="$with_readline_include $basic_include_path"
+pth="$with_readline_include"
 x=`./locate 'readline/readline.h' '' $pth`
 case $x in
- ?:/*|/*) rl_include=`dirname $x`
+  ?:/*|/*) rl_include=`dirname $x`
     echo ..."Found readline header in $rl_include"
     if (echo $rl_include | grep "readline$" > /dev/null); then
       rl_include=`dirname $rl_include`
       RLINCLUDE="-I$rl_include"
     fi
      ;;
-  *) echo ..."readline header file not found by Configure, trying to proceed"
-     readline=;;
 esac
 
 exe=$osname-$arch-rlv$$
-if test -n "$readline"; then
-  RLLIBS="-L$readline -lreadline"
+cmd0="$CC $CFLAGS $extraflag $RLINCLUDE -o $exe rl_version.c"
+try() { RLLIBS=$1; cmd="$cmd0 $1"; . log_cmd; }
+
+if test -n "$with_readline_lib"; then
+  rl="-L$with_readline_lib -lreadline"
 else
-  RLLIBS="-lreadline"
+  rl="-lreadline"
 fi
-rllibs="$RLLIBS";
-cmd="$CC $CFLAGS $extraflag $RLINCLUDE -o $exe rl_version.c $RLLIBS"
-. log_cmd
-if test ! -r $exe; then # need ncurses ?
-  echo ..."Linking failed. Trying with libncurses"
-  pth="$with_ncurses_lib $libpth"
-  lib=ncurses; . ./locatelib
-  if test -n "$ncurses"; then
-    RLLIBS="$rllibs -L$ncurses -lncurses"
-  else
-    RLLIBS="$rllibs -lncurses"
+
+# try linking without locatelib (without -L except --with-xxx-lib)
+for tlib in "" tinfo ncurses termcap; do
+  t=$rl
+  if test -n "$tlib"; then # need a termcap compatible library?
+    eval with="\$with_${tlib}_lib"
+    if test -n "$with"; then
+      t="$t -L$with -l$tlib"
+    else
+      t="$t -l$tlib"
+    fi
   fi
-  cmd="$CC $CFLAGS $extraflag $RLINCLUDE -o $exe rl_version.c $RLLIBS"
-  . log_cmd
-fi
-if test ! -r $exe; then # need termcap ?
-  echo ..."Linking failed. Trying with libtermcap"
-  pth="$with_ncurses_lib $libpth"
-  lib=termcap; . ./locatelib
-  if test -n "$termcap"; then
-    RLLIBS="$rllibs -L$termcap -ltermcap"
-  else
-    RLLIBS="$rllibs -ltermcap"
-  fi
-  cmd="$CC $CFLAGS $extraflag $RLINCLUDE -o $exe rl_version.c $RLLIBS"
-  . log_cmd
-fi
+  try "$t"
+  if test -r $exe; then break; fi
+done
 
 readline_version=
 if test -r $exe; then

@@ -572,13 +572,23 @@ static void
 compilecast(long n, int type, int mode) { compilecast_loc(type, mode, tree[n].str); }
 
 static entree *
+fetch_member_raw(const char *s, long len)
+{
+  pari_sp av = avma;
+  char *t = stack_malloc(len+2);
+  entree *ep;
+  t[0] = '_'; strncpy(t+1, s, len); t[++len] = 0; /* prepend '_' */
+  ep = fetch_entry_raw(t, len);
+  avma = av; return ep;
+}
+static entree *
 getfunc(long n)
 {
   long x=tree[n].x;
-  if (tree[x].x==CSTmember)
-    return do_alias(fetch_member(tree[x].str, tree[x].len));
+  if (tree[x].x==CSTmember) /* str-1 points to '.' */
+    return do_alias(fetch_member_raw(tree[x].str - 1, tree[x].len + 1));
   else
-    return do_alias(fetch_entry(tree[x].str, tree[x].len));
+    return do_alias(fetch_entry_raw(tree[x].str, tree[x].len));
 }
 
 static entree *
@@ -955,7 +965,7 @@ compilelambda(long n, long y, GEN vep, struct codepos *pos)
 }
 
 static void
-compilecall(long n, int mode)
+compilecall(long n, int mode, entree *ep)
 {
   pari_sp ltop=avma;
   long j;
@@ -963,32 +973,32 @@ compilecall(long n, int mode)
   long y=tree[n].y;
   GEN arg=listtogen(y,Flistarg);
   long nb=lg(arg)-1;
-  long lnc=first_safe_arg(arg, COsafelex);
+  long lnc=first_safe_arg(arg, COsafelex|COsafedyn);
+  long lnl=first_safe_arg(arg, COsafelex);
+  long fl = lnl==0? (lnc==0? FLnocopy: FLnocopylex): 0;
+  if (ep==NULL)
+    compilenode(x, Ggen, fl);
+  else
+  {
+    long vn=getmvar(ep);
+    if (vn)
+      op_push(OCpushlex,vn,n);
+    else
+      op_push(OCpushdyn,(long)ep,n);
+  }
   for (j=1;j<=nb;j++)
   {
     long x = tree[arg[j]].x, f = tree[arg[j]].f;
     if (f==Fseq)
       compile_err("unexpected ';'", tree[x].str+tree[x].len);
     else if (f!=Fnoarg)
-      compilenode(arg[j], Ggen,j>=lnc?FLnocopylex:0);
+      compilenode(arg[j], Ggen,j>=lnl?FLnocopylex:0);
     else
       op_push(OCpushlong,0,n);
   }
   op_push(OCcalluser,nb,x);
   compilecast(n,Ggen,mode);
   avma=ltop;
-}
-
-static void
-compileuserfunc(entree *ep, long n, int mode)
-{
-  long vn=getmvar(ep);
-  if (tree[n].x<OPnboperator) compile_err("operator unknown",tree[n].str);
-  if (vn)
-    op_push(OCpushlex,vn,n);
-  else
-    op_push(OCpushdyn,(long)ep,n);
-  compilecall(n, mode);
 }
 
 static GEN
@@ -1352,10 +1362,11 @@ compilefunc(entree *ep, long n, int mode, long flag)
           break;
         case 'W':
           {
-            entree *ep = getlvalue(arg[j]);
+            long a = arg[j];
+            entree *ep = getlvalue(a);
             long vn = getmvar(ep);
-            if (vn) op_push(OCcowvarlex,vn,n);
-            else op_push(OCcowvardyn,(long)ep,n);
+            if (vn) op_push(OCcowvarlex, vn, a);
+            else op_push(OCcowvardyn, (long)ep, a);
             compilenode(arg[j++],Ggen,FLnocopy);
             break;
           }
@@ -1412,9 +1423,9 @@ compilefunc(entree *ep, long n, int mode, long flag)
             }
             else
             {
-              compilenewptr(vn,ep,n);
+              compilenewptr(vn, ep, a);
               compilelvalue(a);
-              op_push(OCpushptr, 0,n);
+              op_push(OCpushptr, 0, a);
             }
             nbpointers++;
             break;
@@ -1619,15 +1630,30 @@ compilefunc(entree *ep, long n, int mode, long flag)
   avma=ltop;
 }
 
+static void
+genclosurectx(const char *loc, long nbdata)
+{
+  long i;
+  GEN vep = cgetg(nbdata+1,t_VECSMALL);
+  for(i = 1; i <= nbdata; i++)
+  {
+    vep[i] = 0;
+    op_push_loc(OCpushlex,-i,loc);
+  }
+  frame_push(vep);
+}
+
 static GEN
 genclosure(entree *ep, const char *loc, long  nbdata, int check)
 {
+  pari_sp av = avma;
   struct codepos pos;
-  long i, nb=0;
+  long nb=0;
   const char *code=ep->code,*p,*q;
   char c;
+  GEN text;
   long index=ep->arity;
-  long arity=0, maskarg=0, maskarg0=0, stop=0;
+  long arity=0, maskarg=0, maskarg0=0, stop=0, dovararg=0;
   PPproto mod;
   Gtype ret_typ;
   long ret_flag;
@@ -1668,8 +1694,8 @@ genclosure(entree *ep, const char *loc, long  nbdata, int check)
   dbgstart = loc;
   if (nbdata > arity)
     pari_err(e_MISC,"too many parameters for closure `%s'", ep->name);
-  for(i=1; i<= nbdata; i++)
-    op_push_loc(OCpushgen,data_push(NULL),loc);
+  if (nbdata) genclosurectx(loc, nbdata);
+  text = strtoGENstr(ep->name);
   arity -= nbdata;
   if (maskarg)  op_push_loc(OCcheckargs,maskarg,loc);
   if (maskarg0) op_push_loc(OCcheckargs0,maskarg0,loc);
@@ -1786,8 +1812,10 @@ genclosure(entree *ep, const char *loc, long  nbdata, int check)
     case PPstar:
       switch(c)
       {
-      case 'E':
       case 's':
+        dovararg = 1;
+        break;
+      case 'E':
         return NULL;
       default:
         pari_err(e_MISC,"Unknown prototype code `%c*' for `%s'",c,ep->name);
@@ -1802,7 +1830,8 @@ genclosure(entree *ep, const char *loc, long  nbdata, int check)
   op_push_loc(ret_op, (long) ep, loc);
   if (ret_flag==FLnocopy) op_push_loc(OCcopy,0,loc);
   compilecast_loc(ret_typ, Ggen, loc);
-  return getfunction(&pos,nb+arity,0,strtoGENstr(ep->name),0);
+  if (dovararg) nb|=VARARGBITS;
+  return gerepilecopy(av, getfunction(&pos,nb+arity,nbdata,text,0));
 }
 
 GEN
@@ -1812,7 +1841,7 @@ snm_closure(entree *ep, GEN data)
   long n = data ? lg(data)-1: 0;
   GEN C = genclosure(ep,ep->name,n,0);
   for(i=1; i<=n; i++)
-    gmael(C,4,i) = gel(data,i);
+    gmael(C,7,i) = gel(data,i);
   return C;
 }
 
@@ -1822,7 +1851,7 @@ strtoclosure(const char *s, long n,  ...)
   pari_sp av = avma;
   entree *ep = is_entry(s);
   GEN C;
-  if (!ep) pari_err(e_MISC,"no function named \"%s\"",s);
+  if (!ep) pari_err(e_NOTFUNC, strtoGENstr(s));
   ep = do_alias(ep);
   if ((!EpSTATIC(ep) && EpVALENCE(ep)!=EpINSTALL) || !ep->value)
     pari_err(e_MISC,"not a built-in/install'ed function: \"%s\"",s);
@@ -1834,7 +1863,7 @@ strtoclosure(const char *s, long n,  ...)
     long i;
     va_start(ap,n);
     for(i=1; i<=n; i++)
-      gmael(C,4,i) = va_arg(ap, GEN);
+      gmael(C,7,i) = va_arg(ap, GEN);
     va_end(ap);
   }
   return gerepilecopy(av, C);
@@ -1968,8 +1997,8 @@ compilenode(long n, int mode, long flag)
         op_push(OCpushgen,  data_push(strntoGENexp(tree[n].str,tree[n].len)),n);
         break;
       case CSTquote:
-        {
-          entree *ep = fetch_entry(tree[n].str+1,tree[n].len-1);
+        { /* skip ' */
+          entree *ep = fetch_entry_raw(tree[n].str+1,tree[n].len-1);
           if (EpSTATIC(ep)) compile_varerr(tree[n].str+1);
           op_push(OCpushvar, (long)ep,n);
           compilecast(n,Ggen, mode);
@@ -2019,14 +2048,17 @@ compilenode(long n, int mode, long flag)
     {
       entree *ep=getfunc(n);
       if (EpVALENCE(ep)==EpVAR || EpVALENCE(ep)==EpNEW)
-        compileuserfunc(ep,n,mode);
+      {
+        if (tree[n].x<OPnboperator) /* should not happen */
+          compile_err("operator unknown",tree[n].str);
+        compilecall(n,mode,ep);
+      }
       else
         compilefunc(ep,n,mode,flag);
       return;
     }
   case Fcall:
-    compilenode(x,Ggen,0);
-    compilecall(n,mode);
+    compilecall(n,mode,NULL);
     return;
   case Flambda:
     {
@@ -2069,12 +2101,12 @@ compilenode(long n, int mode, long flag)
           if (tree[a].f==Fassign && (strict || !is_node_zero(y)))
           {
             if (tree[y].f==Fsmall)
-              compilenode(y,Ggen,a);
+              compilenode(y, Ggen, 0);
             else
             {
               struct codepos lpos;
               getcodepos(&lpos);
-              compilenode(y,Ggen,a);
+              compilenode(y, Ggen, 0);
               op_push(OCpushgen, data_push(getclosure(&lpos)),a);
             }
             op_push(OCdefaultarg,-nb+i-1,a);

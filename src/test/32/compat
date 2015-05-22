@@ -209,7 +209,7 @@ group is a quotient of the one computed in bnf (much simpler in general).
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: buchgen()
@@ -217,7 +217,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: buchgenforcefu()
@@ -225,7 +225,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: buchgenfu()
@@ -233,7 +233,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: buchimag()
@@ -390,7 +390,7 @@ terms in the continued fraction expansion.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: char()
@@ -500,6 +500,8 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: compimag(x,y) ===> x*y
 
+x*y: product of x and y.
+
 
   ***   at top-level: compo()
   ***                 ^-------
@@ -521,11 +523,12 @@ A function with that name existed in GP-1.39.15. Please update your script.
 New syntax: compositum(pol1,pol2) ===> polcompositum(pol1,pol2)
 
 polcompositum(P,Q,{flag=0}): vector of all possible compositums of the number 
-fields defined by the polynomials P and Q. If (optional) flag is set (i.e 
-non-null), output for each compositum, not only the compositum polynomial pol, 
-but a vector [R,a,b,k] where a (resp. b) is a root of P (resp. Q) expressed as 
-a polynomial modulo R, and a small integer k such that al2+k*al1 is the chosen 
-root of R.
+fields defined by the polynomials P and Q; flag is optional, whose binary 
+digits mean 1: output for each compositum, not only the compositum polynomial 
+pol, but a vector [R,a,b,k] where a (resp. b) is a root of P (resp. Q) 
+expressed as a polynomial modulo R, and a small integer k such that al2+k*al1 
+is the chosen root of R; 2: assume that the number fields defined by P and Q 
+are linearly disjoint.
 
 
   ***   at top-level: compositum2()
@@ -536,11 +539,12 @@ A function with that name existed in GP-1.39.15. Please update your script.
 New syntax: compositum2(pol1,pol2) ===> polcompositum(pol1,pol2,1)
 
 polcompositum(P,Q,{flag=0}): vector of all possible compositums of the number 
-fields defined by the polynomials P and Q. If (optional) flag is set (i.e 
-non-null), output for each compositum, not only the compositum polynomial pol, 
-but a vector [R,a,b,k] where a (resp. b) is a root of P (resp. Q) expressed as 
-a polynomial modulo R, and a small integer k such that al2+k*al1 is the chosen 
-root of R.
+fields defined by the polynomials P and Q; flag is optional, whose binary 
+digits mean 1: output for each compositum, not only the compositum polynomial 
+pol, but a vector [R,a,b,k] where a (resp. b) is a root of P (resp. Q) 
+expressed as a polynomial modulo R, and a small integer k such that al2+k*al1 
+is the chosen root of R; 2: assume that the number fields defined by P and Q 
+are linearly disjoint.
 
 
   ***   at top-level: comprealraw()
@@ -1229,7 +1233,7 @@ elllocalred(E, faN[i,1]).
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: hclassno()
@@ -1305,7 +1309,7 @@ permutation of row indices such that P applied to M U is H.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: hermitemod()
@@ -1393,6 +1397,13 @@ ranges from 1 to n). By default, fill with 0s.
   ***   at top-level: i()
   ***                 ^---
   ***   not a function in function call
+A function with that name existed in GP-1.39.15. Please update your script.
+
+New syntax: i ===> I
+
+I=I(): square root of -1.
+
+
   ***   at top-level: idealaddmultone()
   ***                 ^-----------------
   ***   not a function in function call
@@ -1666,7 +1677,7 @@ given by the function matimage.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: incgam2()
@@ -1674,7 +1685,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: incgam3()
@@ -1682,7 +1693,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: incgam4()
@@ -2136,7 +2147,7 @@ ellj(x): elliptic j invariant of x.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: kbessel()
@@ -2189,8 +2200,8 @@ A function with that name existed in GP-1.39.15. Please update your script.
 New syntax: kerint(x) ===> matkerint(x)
 
 matkerint(x,{flag=0}): LLL-reduced Z-basis of the kernel of the matrix x with 
-integral entries. flag is optional, and may be set to 0: default, uses LLL, 1: 
-uses matrixqz (much slower).
+integral entries. flag is deprecated, and may be set to 0 or 1 for backward 
+compatibility.
 
 
   ***   at top-level: kerint1()
@@ -2201,8 +2212,8 @@ A function with that name existed in GP-1.39.15. Please update your script.
 New syntax: kerint1(x) ===> matkerint(x,1)
 
 matkerint(x,{flag=0}): LLL-reduced Z-basis of the kernel of the matrix x with 
-integral entries. flag is optional, and may be set to 0: default, uses LLL, 1: 
-uses matrixqz (much slower).
+integral entries. flag is deprecated, and may be set to 0 or 1 for backward 
+compatibility.
 
 
   ***   at top-level: kerint2()
@@ -2210,7 +2221,7 @@ uses matrixqz (much slower).
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: kro()
@@ -2228,7 +2239,7 @@ kronecker(x,y): kronecker symbol (x/y).
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: lambdak()
@@ -2314,7 +2325,7 @@ polynomial coefficients.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: lllgen()
@@ -2353,7 +2364,7 @@ coefficients.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: lllgramgen()
@@ -2485,7 +2496,7 @@ polynomial coefficients.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: ln()
@@ -2737,7 +2748,9 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: nfhermite(nf,x) ===> nfhnf(nf,x)
 
-nfhnf(nf,x): if x=[A,I], gives a pseudo-basis of the module sum A_jI_j
+nfhnf(nf,x,{flag=0}): if x=[A,I], gives a pseudo-basis [B,J] of the module sum 
+A_jI_j. If flag is non-zero, return [[B,J], U], where U is the transformation 
+matrix such that AU = [0|B]
 
 
   ***   at top-level: nfhermitemod()
@@ -2798,7 +2811,8 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: nfsmith(nf,x) ===> nfsnf(nf,x)
 
-nfsnf(nf,x): if x=[A,I,J], outputs [c_1,...c_n] Smith normal form of x.
+nfsnf(nf,x,{flag=0}): if x=[A,I,J], outputs D=[d_1,...d_n] Smith normal form of 
+x. If flag is non-zero return [D,U,V], where UAV = Id.
 
 
   ***   at top-level: nfval()
@@ -2840,13 +2854,20 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: nupow(x,n) ===> qfbnupow(x,n)
 
-qfbnupow(x,n): n-th power of primitive positive definite quadratic form x using 
-nucomp and nudupl.
+qfbnupow(x,n,{L}): n-th power of primitive positive definite quadratic form x 
+using nucomp and nudupl.
 
 
   ***   at top-level: o()
   ***                 ^---
   ***   not a function in function call
+A function with that name existed in GP-1.39.15. Please update your script.
+
+New syntax: o(x) ===> O(x)
+
+O(p^e): p-adic or power series zero with precision given by e
+
+
   ***   at top-level: ordell()
   ***                 ^--------
   ***   not a function in function call
@@ -2876,9 +2897,9 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: orderell(e,x) ===> ellorder(e,x)
 
-ellorder(E,z,{o}): order of the point z on the elliptic curve E over Q or a 
-finite field, 0 if non-torsion. The parameter o, if present, represents a 
-non-zero multiple of the order of z.
+ellorder(E,z,{o}): order of the point z on the elliptic curve E over a number 
+field or a finite field, 0 if non-torsion. The parameter o, if present, 
+represents a non-zero multiple of the order of z.
 
 
   ***   at top-level: ordred()
@@ -3186,10 +3207,11 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: primedec(nf,p) ===> idealprimedec(nf,p)
 
-idealprimedec(nf,p): prime ideal decomposition of the prime number p in the 
-number field nf as a vector of 5 component vectors [p,a,e,f,b] representing the 
-prime ideals pZ_K+a. Z_K, e,f as usual, a as vector of components on the 
-integral basis, b Lenstra's constant.
+idealprimedec(nf,p,{f=0}): prime ideal decomposition of the prime number p in 
+the number field nf as a vector of 5 component vectors [p,a,e,f,b] representing 
+the prime ideals pZ_K+a. Z_K, e,f as usual, a as vector of components on the 
+integral basis, b Lenstra's constant. If f is present and non-zero, restrict 
+the result to primes of residue degree <= f.
 
 
   ***   at top-level: primroot()
@@ -3207,7 +3229,7 @@ znprimroot(n): returns a primitive root of n when it exists.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: principalidele()
@@ -3215,7 +3237,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: prodinf1()
@@ -3371,7 +3393,7 @@ quadregulator(x): regulator of the real quadratic field of discriminant x.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: resultant()
@@ -3557,7 +3579,7 @@ number field nf.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: rounderror()
@@ -3645,8 +3667,8 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: size(x) ===> sizedigit(x)
 
-sizedigit(x): maximum number of decimal digits minus one of (the coefficients 
-of) x.
+sizedigit(x): rough upper bound for the number of decimal digits of (the 
+components of) $x$. DEPRECATED.
 
 
   ***   at top-level: smallbasis()
@@ -3957,7 +3979,7 @@ teichmuller(x): teichmuller character of p-adic number x.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: threetotwo2()
@@ -3965,7 +3987,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: torsell()
@@ -3975,9 +3997,7 @@ A function with that name existed in GP-1.39.15. Please update your script.
 
 New syntax: torsell(e) ===> elltors(e)
 
-elltors(E,{flag=0}): torsion subgroup of elliptic curve E: order, structure, 
-generators. If flag = 0, use division polynomials; if flag = 1, use 
-Lutz-Nagell; if flag = 2, use Doud's algorithm.
+elltors(E): torsion subgroup of elliptic curve E: order, structure, generators.
 
 
   ***   at top-level: trans()
@@ -4017,7 +4037,7 @@ poltschirnhaus(x): random Tschirnhausen transformation of the polynomial x.
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: unit()
@@ -4410,7 +4430,7 @@ postscript program in psfile (pari.ps by default).
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
   ***   at top-level: pprint1()
@@ -4418,7 +4438,7 @@ This function was suppressed
   ***   not a function in function call
 A function with that name existed in GP-1.39.15. Please update your script.
 
-This function was suppressed
+This function no longer exists
 
 
 
@@ -4554,4 +4574,4 @@ New syntax: texprint(x) ===> printtex(x)
 printtex({str}*): outputs its string arguments in TeX format.
 
 
-Total time spent: 12
+Total time spent: 8

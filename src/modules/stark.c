@@ -272,7 +272,7 @@ GetPrimChar(GEN chi, GEN bnr, GEN bnrc, long prec)
   M = bnrsurjection(bnr, bnrc);
   (void)ZM_hnfall(shallowconcat(M, Mrc), &U, 1);
   l = lg(M);
-  U = rowslice(vecslice(U, l, lg(U)-1), 1, l-1);
+  U = matslice(U,1,l-1, l,lg(U)-1);
   return gerepilecopy(av, get_Char(chi, initc, U, prec));
 }
 
@@ -325,8 +325,7 @@ ComputeKernel0(GEN P, GEN cycA, GEN cycB)
   GEN U, DB = diagonal_shallow(cycB);
 
   rk = nbA + lg(cycB) - lg(ZM_hnfall(shallowconcat(P, DB), &U, 1));
-  U = vecslice(U, 1,rk);
-  U = rowslice(U, 1,nbA);
+  U = matslice(U, 1,nbA, 1,rk);
   return gerepileupto(av, ZM_hnfmodid(U, cycA));
 }
 
@@ -1403,14 +1402,6 @@ deg0(LISTray *R, long p) { vecsmalltrunc_append(R->L0, p); }
 static void
 deg2(LISTray *R, long p) { vecsmalltrunc_append(R->L2, p); }
 
-/* pi(x) <= ?? */
-static long
-PiBound(ulong x)
-{
-  double lx = log((double)x);
-  return 1 + (long) (x/lx * (1 + 3/(2*lx)));
-}
-
 static void
 InitPrimesQuad(GEN bnr, ulong N0, LISTray *R)
 {
@@ -1420,7 +1411,7 @@ InitPrimesQuad(GEN bnr, ulong N0, LISTray *R)
   GEN prime, Lpr, nf = bnf_get_nf(bnf), dk = nf_get_disc(nf);
   forprime_t T;
 
-  l = 1 + PiBound(N0);
+  l = 1 + primepi_upper_bound(N0);
   R->L0 = vecsmalltrunc_init(l);
   R->L2 = vecsmalltrunc_init(l); R->condZ = condZ;
   R->L1 = vecsmalltrunc_init(l); R->L1ray = vectrunc_init(l);
@@ -1467,32 +1458,30 @@ InitPrimes(GEN bnr, ulong N0, LISTray *R)
 {
   GEN bnf = bnr_get_bnf(bnr), cond = gel(bnr_get_mod(bnr), 1);
   long p,j,k,l, condZ = itos(gcoeff(cond,1,1)), N = lg(cond)-1;
-  GEN tmpray, tabpr, prime, nf = bnf_get_nf(bnf);
+  GEN tmpray, tabpr, prime, BOUND, nf = bnf_get_nf(bnf);
   forprime_t T;
 
-  R->condZ = condZ; l = PiBound(N0) * N;
+  R->condZ = condZ; l = primepi_upper_bound(N0) * N;
   tmpray = cgetg(N+1, t_VEC);
   R->L1 = vecsmalltrunc_init(l);
   R->L1ray = vectrunc_init(l);
   u_forprime_init(&T, 2, N0);
   prime = utoipos(2);
+  BOUND = utoi(N0);
   while ( (p = u_forprime_next(&T)) )
   {
     pari_sp av = avma;
     prime[2] = p;
     if (DEBUGLEVEL>1 && (p & 2047) == 1) err_printf("%ld ", p);
-    tabpr = idealprimedec(nf, prime);
+    tabpr = idealprimedec_limit_norm(nf, prime, BOUND);
     for (j = 1; j < lg(tabpr); j++)
     {
       GEN pr  = gel(tabpr,j);
-      ulong np = upowuu(p, pr_get_f(pr));
-      if (!np || np > N0) break;
       if (condZ % p == 0 && idealval(nf, cond, pr))
       {
         gel(tmpray,j) = NULL; continue;
       }
-
-      vecsmalltrunc_append(R->L1, np);
+      vecsmalltrunc_append(R->L1, upowuu(p, pr_get_f(pr)));
       gel(tmpray,j) = gclone( isprincipalray(bnr, pr) );
     }
     avma = av;
@@ -2837,7 +2826,7 @@ quadray_init(GEN *pD, GEN f, GEN *pbnf, long prec)
     int isfund;
     if (pbnf) {
       long v = f? gvar(f): NO_VARIABLE;
-      if (v == NO_VARIABLE) v = fetch_user_var("y");
+      if (v == NO_VARIABLE) v = 1;
       bnf = Buchall(quadpoly0(D, v), nf_FORCE, prec);
       nf = bnf_get_nf(bnf);
       isfund = equalii(D, nf_get_disc(nf));
@@ -3485,19 +3474,22 @@ PRECPB:
 
 #define nexta(a) (a>0 ? -a : 1-a)
 static GEN
-do_compo(GEN x, GEN y)
+do_compo(GEN A0, GEN B)
 {
-  long a, i, l = lg(y);
-  GEN z;
-  y = leafcopy(y); /* y := t^deg(y) y(#/t) */
-  for (i = 2; i < l; i++)
-    if (signe(gel(y,i))) gel(y,i) = monomial(gel(y,i), l-i-1, MAXVARN);
+  long a, i, l = lg(B), v = fetch_var_higher();
+  GEN A, z;
+  /* now v > x = pol_x(0) > nf variable */
+  B = leafcopy(B); setvarn(B, v);
+  for (i = 2; i < l; i++) gel(B,i) = monomial(gel(B,i), l-i-1, 0);
+  /* B := x^deg(B) B(v/x) */
+  A = A0 = leafcopy(A0); setvarn(A0, v);
   for  (a = 0;; a = nexta(a))
   {
-    if (a) x = gsubst(x, 0, gaddsg(a, pol_x(0)));
-    z = gsubst(resultant(x,y), MAXVARN, pol_x(0));
-    if (issquarefree(z)) return z;
+    if (a) A = RgX_translate(A0, stoi(a));
+    z = resultant(A,B); /* in variable 0 */
+    if (issquarefree(z)) break;
   }
+  (void)delete_var(); return z;
 }
 #undef nexta
 
@@ -3524,7 +3516,7 @@ findquad(GEN a, GEN x, GEN p)
   v = simplify_shallow(v); tv = typ(v);
   if (!is_scalar_t(tu)) pari_err_TYPE("findquad", u);
   if (!is_scalar_t(tv)) pari_err_TYPE("findquad", v);
-  x = deg1pol(v, u, varn(a));
+  x = deg1pol(u, v, varn(a));
   if (typ(x) == t_POL) x = gmodulo(x,p);
   return gerepileupto(av, x);
 }
@@ -3617,8 +3609,7 @@ treatspecialsigma(GEN bnr)
   }
 
   p1 = gcoeff(f,1,1); /* integer > 0 */
-  if (is_bigint(p1)) return NULL;
-  tryf = p1[2];
+  tryf = itou_or_0(p1); if (!tryf) return NULL;
   p2 = gcoeff(f,2,2); /* integer > 0 */
   if (is_pm1(p2)) fl = 0;
   else {

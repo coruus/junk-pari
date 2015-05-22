@@ -1420,11 +1420,12 @@ fin:
 static long
 squfof_ambig(long a, long B, long dd, GEN D)
 {
-  long b, c, q, qc, qcb, a0, b0, b1, c0;
+  long b, c, q, qa, qc, qcb, a0, b0, b1, c0;
   long cnt = 0; /* count reduction steps on the cycle */
 
   q = (dd + (B>>1)) / a;
-  b = ((q*a) << 1) - B;
+  qa = q * a;
+  b = (qa - B) + qa; /* avoid overflow */
   {
     pari_sp av = avma;
     c = itos(divis(shifti(subii(D, sqrs(b)), -2), a));
@@ -3348,7 +3349,7 @@ moebius(GEN n)
     E = gel(F,2);
     l = lg(E);
     for(i = 1; i < l; i++)
-      if (!equali1(gel(E,1))) { avma = av; return 0; }
+      if (!equali1(gel(E,i))) { avma = av; return 0; }
     avma = av; return odd(l)? 1: -1;
   }
   if (lgefint(n) == 3) return moebiusu(uel(n,2));
@@ -3400,8 +3401,9 @@ ispowerful(GEN n)
     if (lg(P) == 1) return 1; /* 1 */
     p = gel(P,1);
     if (!signe(p)) return 1; /* 0 */
+    i = is_pm1(p)? 2: 1; /* skip -1 */
     l = lg(E);
-    for (i = 1; i < l; i++)
+    for (; i < l; i++)
       if (equali1(gel(E,i))) return 0;
     return 1;
   }

@@ -207,6 +207,10 @@ ZXX_mul_Kronecker(GEN x, GEN y, long n)
 { return ZX_mul(ZXX_to_Kronecker(x,n), ZXX_to_Kronecker(y,n)); }
 
 GEN
+ZXX_sqr_Kronecker(GEN x, long n)
+{ return ZX_sqr(ZXX_to_Kronecker(x,n)); }
+
+GEN
 FpXQX_red(GEN z, GEN T, GEN p)
 {
   long i, l = lg(z);
@@ -255,10 +259,11 @@ static GEN
 FpXY_FpY_mulspec(GEN x, GEN y, GEN T, GEN p, long lx, long ly)
 {
   pari_sp av = avma;
-  GEN z = RgXY_swapspec(x,get_FpX_degree(T)-1,MAXVARN,lx);
-  z = FpXX_FpX_mulspec(z,y,p,MAXVARN,ly);
+  long v = fetch_var();
+  GEN z = RgXY_swapspec(x,get_FpX_degree(T)-1,v,lx);
+  z = FpXX_FpX_mulspec(z,y,p,v,ly);
   z = RgXY_swapspec(z+2,lx+ly+3,get_FpX_var(T),lgpol(z));
-  return gerepilecopy(av,z);
+  (void)delete_var(); return gerepilecopy(av,z);
 }
 
 static GEN
@@ -797,7 +802,7 @@ FpXQXV_prod(GEN V, GEN T, GEN p)
     struct _FpXQX d;
     d.p=p;
     d.T=T;
-    return divide_conquer_assoc(V, (void*)&d, &_FpXQX_mul);
+    return gen_product(V, (void*)&d, &_FpXQX_mul);
   }
 }
 
@@ -861,14 +866,12 @@ FpXY_evaly(GEN Q, GEN y, GEN p, long vx)
   pari_sp av = avma;
   long i, lb = lg(Q);
   GEN z;
-  if (lb == 2) return pol_0(vx);
-  z = gel(Q, lb-1);
-  if (lb == 3) return typ(z)==t_INT? scalar_ZX(z, vx): ZX_copy(z);
-  if (!signe(y)) {
+  if (!signe(Q)) return pol_0(vx);
+  if (lb == 3 || !signe(y)) {
     z = gel(Q, 2);
     return typ(z)==t_INT? scalar_ZX(z, vx): ZX_copy(z);
   }
-
+  z = gel(Q, lb-1);
   if (typ(z) == t_INT) z = scalar_ZX_shallow(z, vx);
   for (i=lb-2; i>=2; i--) z = Fq_add(gel(Q,i), FpX_Fp_mul(z, y, p), NULL, p);
   return gerepileupto(av, z);

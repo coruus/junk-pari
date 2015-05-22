@@ -73,18 +73,20 @@ int     disable_color;
 ulong   DEBUGFILES, DEBUGLEVEL, DEBUGMEM;
 long    DEBUGVAR;
 ulong   pari_mt_nbthreads;
-ulong   precreal, precdl, logstyle;
+long    precreal;
+ulong   precdl, logstyle;
 gp_data *GP_DATA;
 
 GEN colormap, pari_graphcolors;
 
 entree  **varentries;
+long    *varpriority;
 
 THREAD pari_sp avma;
 THREAD struct pari_mainstack *pari_mainstack;
 
-static void ** MODULES, ** OLDMODULES;
-static pari_stack s_MODULES, s_OLDMODULES;
+static void ** MODULES;
+static pari_stack s_MODULES;
 const long functions_tblsz = 135; /* size of functions_hash */
 entree **functions_hash, **defaults_hash;
 
@@ -94,6 +96,7 @@ void (*cb_pari_quit)(long);
 void (*cb_pari_init_histfile)(void);
 void (*cb_pari_ask_confirm)(const char *);
 int  (*cb_pari_handle_exception)(long);
+int  (*cb_pari_err_handle)(GEN);
 int  (*cb_pari_whatnow)(PariOUT *out, const char *, int);
 void (*cb_pari_sigint)(void);
 void (*cb_pari_pre_recover)(long);
@@ -575,8 +578,6 @@ pari_init_functions(void)
 {
   pari_stack_init(&s_MODULES, sizeof(*MODULES),(void**)&MODULES);
   pari_stack_pushp(&s_MODULES,functions_basic);
-  pari_stack_init(&s_OLDMODULES, sizeof(*OLDMODULES),(void**)&OLDMODULES);
-  pari_stack_pushp(&s_OLDMODULES,oldfonctions);
   functions_hash = (entree**) pari_calloc(sizeof(entree*)*functions_tblsz);
   pari_fill_hashtable(functions_hash, functions_basic);
   defaults_hash = (entree**) pari_calloc(sizeof(entree*)*functions_tblsz);
@@ -660,13 +661,10 @@ pari_mainstack_alloc(struct pari_mainstack *st, size_t rsize, size_t vsize)
   size_t sizemax = vsize ? vsize: rsize, s = fix_size(sizemax);
   for (;; s>>=1)
   {
-    char buf[128];
     if (s < MIN_STACK) pari_err(e_MEM); /* no way out. Die */
     st->vbot = (pari_sp)pari_mainstack_malloc(s);
     if (st->vbot) break;
-      /* must use sprintf: pari stack is currently dead */
-    sprintf(buf, "not enough memory, new stack %lu", (ulong)s);
-    pari_warn(warner, buf, s);
+    pari_warn(warnstack, s>>1);
   }
   st->vsize = vsize ? s: 0;
   st->rsize = minss(rsize, s);
@@ -719,7 +717,7 @@ parivstack_resize(ulong newsize)
 {
   size_t s;
   if (newsize && newsize < pari_mainstack->rsize)
-    pari_err_DIM("stack sizes");
+    pari_err_DIM("stack sizes [parisizemax < parisize]");
   if (newsize == pari_mainstack->vsize) return;
   evalstate_reset();
   paristack_setsize(pari_mainstack->rsize, newsize);
@@ -852,6 +850,8 @@ dflt_err_recover(long errnum) { (void) errnum; pari_exit(); }
 static void
 dflt_pari_quit(long err) { (void)err; /*do nothing*/; }
 
+static int pari_err_display(GEN err);
+
 /* initialize PARI data. Initialize [new|old]fun to NULL for default set. */
 void
 pari_init_opts(size_t parisize, ulong maxprime, ulong init_opts)
@@ -863,6 +863,8 @@ pari_init_opts(size_t parisize, ulong maxprime, ulong init_opts)
   cb_pari_get_line_interactive = NULL;
   cb_pari_fgets_interactive = NULL;
   cb_pari_whatnow = NULL;
+  cb_pari_handle_exception = NULL;
+  cb_pari_err_handle = pari_err_display;
   cb_pari_pre_recover = NULL;
   cb_pari_break_loop = NULL;
   cb_pari_is_interactive = NULL;
@@ -878,7 +880,6 @@ pari_init_opts(size_t parisize, ulong maxprime, ulong init_opts)
     gp_expand_path(GP_DATA->path);
   }
 
-  if ((init_opts&INIT_SIGm)) pari_sig_init(pari_sighandler);
   pari_mainstack = (struct pari_mainstack *) malloc(sizeof(*pari_mainstack));
   paristack_alloc(parisize, 0);
   init_universal_constants();
@@ -887,7 +888,6 @@ pari_init_opts(size_t parisize, ulong maxprime, ulong init_opts)
   pari_kernel_init();
 
   primetab = cgetalloc(t_VEC, 1);
-  varentries = (entree**) pari_calloc((MAXVARN+1)*sizeof(entree*));
   pari_thread_init();
   pari_init_seadata();
   pari_init_functions();
@@ -897,6 +897,7 @@ pari_init_opts(size_t parisize, ulong maxprime, ulong init_opts)
   (void)getabstime();
   try_to_recover = 1;
   if (!(init_opts&INIT_noIMTm)) pari_mt_init();
+  if ((init_opts&INIT_SIGm)) pari_sig_init(pari_sighandler);
 }
 
 void
@@ -912,7 +913,6 @@ pari_close_opts(ulong init_opts)
   if ((init_opts&INIT_SIGm)) pari_sig_init(SIG_DFL);
   if (!(init_opts&INIT_noIMTm)) pari_mt_close();
 
-  while (delete_var()) /* empty */;
   for (i = 0; i < functions_tblsz; i++)
   {
     entree *ep = functions_hash[i];
@@ -922,7 +922,7 @@ pari_close_opts(ulong init_opts)
       ep = EP;
     }
   }
-  free((void*)varentries);
+  pari_var_close();
   free((void*)primetab);
   pari_close_seadata();
   pari_thread_close();
@@ -936,7 +936,6 @@ pari_close_opts(ulong init_opts)
   pari_mainstack_free(pari_mainstack);
   free((void*)pari_mainstack);
   pari_stack_delete(&s_MODULES);
-  pari_stack_delete(&s_OLDMODULES);
   pari_close_homedir();
   if (pari_datadir) free(pari_datadir);
   if (init_opts&INIT_DFTm)
@@ -972,6 +971,7 @@ gp_context_save(struct gp_context* rec)
   rec->listloc = next_block;
   rec->iferr_env = iferr_env;
   rec->err_data  = global_err_data;
+  varstate_save(&rec->var);
   evalstate_save(&rec->eval);
   parsestate_save(&rec->parse);
 }
@@ -1009,6 +1009,7 @@ gp_context_restore(struct gp_context* rec)
       ep = EP;
     }
   }
+  varstate_restore(&rec->var);
   if (DEBUGMEM>2) err_printf("leaving recover()\n");
   BLOCK_SIGINT_END
   try_to_recover = 1;
@@ -1022,9 +1023,6 @@ err_recover(long numerr)
   evalstate_reset();
   killallfiles();
   pari_init_errcatch();
-  out_puts(pariErr, "\n");
-  pariErr->flush();
-
   cb_pari_err_recover(numerr);
 }
 
@@ -1039,11 +1037,11 @@ err_init(void)
 }
 
 static void
-err_init_msg(int numerr, int user)
+err_init_msg(int user)
 {
   const char *gp_function_name;
   out_puts(pariErr, "  *** ");
-  if (numerr != user && (gp_function_name = closure_func_err()))
+  if (!user && (gp_function_name = closure_func_err()))
     out_printf(pariErr, "%s: ", gp_function_name);
   else
     out_puts(pariErr, "  ");
@@ -1058,7 +1056,7 @@ pari_warn(int numerr, ...)
   va_start(ap,numerr);
 
   err_init();
-  err_init_msg(numerr, warnuser);
+  err_init_msg(numerr==warnuser || numerr==warnstack);
   switch (numerr)
   {
     case warnuser:
@@ -1086,6 +1084,16 @@ pari_warn(int numerr, ...)
       ch1 = va_arg(ap, char*);
       out_printf(pariErr, "%s: %s", ch1, va_arg(ap, char*));
       break;
+
+    case warnstack:
+    {
+      ulong  s = va_arg(ap, ulong);
+      char buf[128];
+      sprintf(buf,"Warning: not enough memory, new stack %lu", (ulong)s);
+      out_puts(pariErr,buf);
+      break;
+    }
+
   }
   va_end(ap);
   out_term_color(pariErr, c_NONE);
@@ -1099,7 +1107,7 @@ pari_sigint(const char *time_s)
   BLOCK_SIGALRM_START
   err_init();
   closure_err(0);
-  err_init_msg(e_MISC, e_USER);
+  err_init_msg(0);
   out_puts(pariErr, "user interrupt after ");
   out_puts(pariErr, time_s);
   out_term_color(pariErr, c_NONE);
@@ -1233,6 +1241,8 @@ pari_err2GEN(long numerr, va_list ap)
     retmkerr2(numerr, utoi(va_arg(ap, ulong)));
   case e_STACK:
     return err_e_STACK;
+  case e_STACKTHREAD:
+    retmkerr3(numerr, utoi(va_arg(ap, ulong)), utoi(va_arg(ap, ulong)));
   default:
     return mkerr(numerr);
   }
@@ -1375,23 +1385,28 @@ pari_err2str(GEN e)
     return pari_sprintf("not an n-th power residue in %Ps: %Ps.",
                         gel(e,2), gel(e,3));
   case e_STACK:
+  case e_STACKTHREAD:
     {
+      const char *stack = numerr == e_STACK? "PARI": "thread";
+      const char *var = numerr == e_STACK? "parisizemax": "threadsizemax";
+      size_t rsize = numerr == e_STACKTHREAD && GP_DATA->threadsize ?
+                                GP_DATA->threadsize: pari_mainstack->rsize;
+      size_t vsize = numerr == e_STACK? pari_mainstack->vsize:
+                                        GP_DATA->threadsizemax;
       char *buf = (char *) pari_malloc(512*sizeof(char));
-      if (pari_mainstack->vsize)
+      if (vsize)
       {
-        size_t d = pari_mainstack->vsize;
-        sprintf(buf, "the PARI stack overflows !\n"
+        sprintf(buf, "the %s stack overflows !\n"
             "  current stack size: %lu (%.3f Mbytes)\n"
-            "  [hint] you can increase 'parisizemax' using default()\n",
-            (ulong)d, (double)d/1048576.);
+            "  [hint] you can increase '%s' using default()\n",
+            stack, (ulong)vsize, (double)vsize/1048576., var);
       }
       else
       {
-        size_t d = pari_mainstack->rsize;
-        sprintf(buf, "the PARI stack overflows !\n"
+        sprintf(buf, "the %s stack overflows !\n"
             "  current stack size: %lu (%.3f Mbytes)\n"
-            "  [hint] set 'parisizemax' to a non-zero value in your GPRC\n",
-            (ulong)d, (double)d/1048576.);
+            "  [hint] set '%s' to a non-zero value in your GPRC\n",
+            stack, (ulong)rsize, (double)rsize/1048576., var);
       }
       return buf;
     }
@@ -1412,22 +1427,23 @@ pari_err2str(GEN e)
   return NULL; /*NOT REACHED*/
 }
 
-static void
+static int
 pari_err_display(GEN err)
 {
   long numerr=err_get_num(err);
+  err_init();
   if (numerr==e_SYNTAX)
   {
     const char *msg = GSTR(gel(err,2));
     const char *s     = (const char *) gmael(err,3,1);
     const char *entry = (const char *) gmael(err,3,2);
     print_errcontext(pariErr, msg, s, entry);
-    return;
   }
   else
   {
     char *s = pari_err2str(err);
-    err_init_msg(numerr, e_USER);
+    closure_err(0);
+    err_init_msg(numerr==e_USER);
     pariErr->puts(s);
     if (numerr==e_NOTFUNC)
     {
@@ -1441,6 +1457,8 @@ pari_err_display(GEN err)
     }
     pari_free(s);
   }
+  out_term_color(pariErr, c_NONE);
+  pariErr->flush(); return 0;
 }
 
 void
@@ -1461,12 +1479,9 @@ pari_err(int numerr, ...)
   global_err_data = E;
   if (*iferr_env) longjmp(*iferr_env, numerr);
   mt_err_recover(numerr);
-  err_init();
-  if (numerr != e_SYNTAX) closure_err(0);
-  pari_err_display(E);
-  out_term_color(pariErr, c_NONE);
   va_end(ap);
-  pariErr->flush();
+  if (cb_pari_err_handle &&
+      cb_pari_err_handle(E)) return;
   if (cb_pari_handle_exception &&
       cb_pari_handle_exception(numerr)) return;
   err_recover(numerr);
@@ -1509,6 +1524,7 @@ numerr_name(long numerr)
   case e_SQRTN:    return "e_SQRTN";
   case e_STACK:    return "e_STACK";
   case e_SYNTAX:   return "e_SYNTAX";
+  case e_STACKTHREAD:   return "e_STACKTHREAD";
   case e_TYPE2:    return "e_TYPE2";
   case e_TYPE:     return "e_TYPE";
   case e_USER:     return "e_USER";
@@ -1608,7 +1624,7 @@ listassign(GEN x, GEN y)
   long nmax = list_nmax(x);
   GEN L = list_data(x);
   if (!nmax && L) nmax = lg(L) + 32; /* not malloc'ed yet */
-  list_nmax(y) = nmax;
+  y[1] = evaltyp(list_typ(x))|evallg(nmax);
   list_data(y) = list_internal_copy(L, nmax);
 }
 
@@ -1618,6 +1634,7 @@ listcopy(GEN x)
 {
   GEN y = listcreate(), L = list_data(x);
   if (L) list_data(y) = gcopy(L);
+  y[1] = evaltyp(list_typ(x));
   return y;
 }
 
@@ -1768,13 +1785,14 @@ gcopy_av0_canon(GEN x, pari_sp *AVMA)
     /* one more special case */
     case t_LIST:
     {
+      long t = list_typ(x);
       GEN y = cgetlist_avma(AVMA), z = list_data(x);
       if (z) {
         list_data(y) = gcopy_av0_canon(z, AVMA);
-        list_nmax(y) = lg(z)-1;
+        y[1] = evaltyp(t)|evallg(lg(z)-1);
       } else {
         list_data(y) = NULL;
-        list_nmax(y) = 0;
+        y[1] = evaltyp(t);
       }
       return y;
     }
@@ -2042,32 +2060,20 @@ obj_checkbuild(GEN S, long tag, GEN (*build)(GEN))
 }
 
 GEN
-obj_checkbuild_prec(GEN S, long tag, GEN (*build)(GEN,long), long prec)
+obj_checkbuild_prec(GEN S, long tag, GEN (*build)(GEN,long),
+  long (*pr)(GEN), long prec)
 {
   pari_sp av = avma;
   GEN w = obj_check(S, tag);
-  if (w)
-  {
-    long p = gprecision(w);
-    if (p >= prec) return gprec_w(w, prec);
-  }
-  w = obj_insert(S, tag, build(S, prec));
+  if (!w || pr(w) < prec) w = obj_insert(S, tag, build(S, prec));
   avma = av; return gcopy(w);
 }
-
+GEN
+obj_checkbuild_realprec(GEN S, long tag, GEN (*build)(GEN,long), long prec)
+{ return obj_checkbuild_prec(S,tag,build,gprecision,prec); }
 GEN
 obj_checkbuild_padicprec(GEN S, long tag, GEN (*build)(GEN,long), long prec)
-{
-  pari_sp av = avma;
-  GEN w = obj_check(S, tag);
-  if (w)
-  {
-    long p = padicprec_relative(w);
-    if (p >= prec) return gprec_w(w, prec);
-  }
-  w = obj_insert(S, tag, build(S, prec));
-  avma = av; return gcopy(w);
-}
+{ return obj_checkbuild_prec(S,tag,build,padicprec_relative,prec); }
 
 /* Reset S [last position], freeing all clones */
 void
@@ -2250,6 +2256,9 @@ debug_stack(void)
 
 void
 setdebugvar(long n) { DEBUGVAR=n; }
+
+long
+getdebugvar(void) { return DEBUGVAR; }
 
 long
 getstack(void) { return pari_mainstack->top-avma; }

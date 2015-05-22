@@ -28,6 +28,23 @@ enum {
   typ_RNF
 };
 
+/* types of algebras */
+enum  {
+  al_NULL = 0,
+  al_TABLE,
+  al_CSA,
+  al_CYCLIC
+};
+
+/* models for elements of algebras */
+enum {
+  al_INVALID = 0,
+  al_TRIVIAL,
+  al_ALGEBRAIC,
+  al_BASIS,
+  al_MATRIX
+};
+
 /* idealtyp */
 enum {
   id_PRINCIPAL = 0,
@@ -162,9 +179,11 @@ GEN    coltoalg(GEN nf,GEN x);
 GEN    archstar_full_rk(GEN x, GEN bas, GEN v, GEN gen);
 GEN    check_and_build_cycgen(GEN bnf);
 long   check_LIMC(long LIMC, long LIMCMAX);
+int    checkal_i(GEN x);
 GEN    checkbid_i(GEN bid);
 GEN    checkbnf_i(GEN bnf);
 GEN    checknf_i(GEN nf);
+int    checkrnf_i(GEN rnf);
 GEN    pow_ei_mod_p(GEN nf, long I, GEN n, GEN p);
 GEN    galoisbig(GEN x, long prec);
 GEN    get_arch_real(GEN nf,GEN x,GEN *emb,long prec);

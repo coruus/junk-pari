@@ -47,6 +47,19 @@ FpC_center(GEN z, GEN p, GEN pov2)
   return x;
 }
 
+/* assume 0 <= u < p and ps2 = p>>1 */
+INLINE void
+Fp_center_inplace(GEN u, GEN p, GEN ps2)
+{ if (absi_cmp(u,ps2) > 0) subiiz(u,p,u); }
+
+void
+FpC_center_inplace(GEN z, GEN p, GEN ps2)
+{
+  long i,l = lg(z);
+  for (i=1; i<l; i++)
+    Fp_center_inplace(gel(z,i), p, ps2);
+}
+
 GEN
 Flv_center(GEN z, ulong p, ulong ps2)
 {
@@ -74,6 +87,12 @@ FpM_center(GEN z, GEN p, GEN pov2)
   return x;
 }
 
+void
+FpM_center_inplace(GEN z, GEN p, GEN pov2)
+{
+  long i, l = lg(z);
+  for (i=1; i<l; i++) FpC_center_inplace(gel(z,i), p, pov2);
+}
 GEN
 Flm_center(GEN z, ulong p, ulong ps2)
 {
@@ -102,6 +121,16 @@ FpV_add(GEN x, GEN y, GEN p)
   long i, lx = lg(x);
   GEN z = cgetg(lx, t_VEC);
   for (i = 1; i < lx; i++) gel(z, i) = Fp_add(gel(x, i), gel(y, i), p);
+  return z;
+}
+GEN
+FpM_add(GEN x, GEN y, GEN p)
+{
+  long lx = lg(x), j;
+  GEN z;
+  if (lx == 1) return cgetg(1, t_MAT);
+  z = cgetg(lx, t_MAT);
+  for (j = 1; j < lx; j++) gel(z,j) = FpC_add(gel(x,j), gel(y,j), p);
   return z;
 }
 
@@ -190,6 +219,15 @@ Flm_Fl_add(GEN x, ulong y, ulong p)
   return z;
 }
 
+GEN
+Flm_add(GEN x, GEN y, ulong p)
+{
+  long i, l = lg(x);
+  GEN z = cgetg(l,t_MAT);
+  for (i = 1; i < l; i++) gel(z,i) = Flv_add(gel(x,i),gel(y,i),p);
+  return z;
+}
+
 /********************************************************************/
 /**                                                                **/
 /**                           MULTIPLICATION                       **/
@@ -220,6 +258,20 @@ void
 Flc_Fl_div_inplace(GEN x, ulong y, ulong p)
 {
   Flc_Fl_mul_inplace(x, Fl_inv(y, p), p);
+}
+GEN
+FpM_Fp_mul(GEN X, GEN c, GEN p) {
+  long i, j, h, l = lg(X);
+  GEN A = cgetg(l, t_MAT);
+  if (l == 1) return A;
+  h = lgcols(X);
+  for (j=1; j<l; j++)
+  {
+    GEN a = cgetg(h, t_COL), x = gel(X, j);
+    for (i = 1; i < h; i++) gel(a,i) = Fp_mul(gel(x,i), c, p);
+    gel(A,j) = a;
+  }
+  return A;
 }
 
 /* x *= y */
@@ -331,22 +383,29 @@ zm_mul(GEN x, GEN y)
 static ulong
 Flmrow_Flc_mul_SMALL(GEN x, GEN y, ulong p, long lx, long i)
 {
-  ulong c = ucoeff(x,i,1) * y[1];
+  ulong c = ucoeff(x,i,1) * uel(y,1);
   long k;
   for (k = 2; k < lx; k++) {
-    c += ucoeff(x,i,k) * y[k];
+    c += ucoeff(x,i,k) * uel(y,k);
     if (c & HIGHBIT) c %= p;
   }
   return c % p;
 }
+
 static ulong
-Flmrow_Flc_mul(GEN x, GEN y, ulong p, long lx, long i)
+Flmrow_Flc_mul_i(GEN x, GEN y, ulong p, ulong pi, long lx, long i)
 {
-  ulong c = Fl_mul(ucoeff(x,i,1), y[1], p);
-  long k;
-  for (k = 2; k < lx; k++)
-    c = Fl_add(c, Fl_mul(ucoeff(x,i,k), y[k], p), p);
-  return c;
+  ulong l0, l1, v1, h0, h1;
+  long k = 1;
+  LOCAL_OVERFLOW;
+  LOCAL_HIREMAINDER;
+  l1 = mulll(ucoeff(x,i,k), uel(y,k)); h1 = hiremainder; v1 = 0;
+  while (++k < lx) {
+    l0 = mulll(ucoeff(x,i,k), uel(y,k)); h0 = hiremainder;
+    l1 = addll(l0, l1); h1 = addllx(h0, h1); v1 += overflow;
+  }
+  if (v1 == 0) return remll_pre(h1, l1, p, pi);
+  else return remlll_pre(v1, h1, l1, p, pi);
 }
 
 static GEN
@@ -387,11 +446,11 @@ Flm_Flc_mul_i_SMALL(GEN x, GEN y, long lx, long l, ulong p)
   return z;
 }
 static GEN
-Flm_Flc_mul_i(GEN x, GEN y, long lx, long l, ulong p)
+Flm_Flc_mul_i(GEN x, GEN y, long lx, long l, ulong p, ulong pi)
 {
   GEN z = cgetg(l,t_VECSMALL);
   long i;
-  for (i=1; i<l; i++) z[i] = Flmrow_Flc_mul(x, y, p, lx, i);
+  for (i = 1; i < l; i++) z[i] = Flmrow_Flc_mul_i(x, y, p, pi, lx, i);
   return z;
 }
 INLINE GEN
@@ -456,8 +515,9 @@ Flm_mul(GEN x, GEN y, ulong p)
     for (j=1; j<ly; j++)
       gel(z,j) = Flm_Flc_mul_i_SMALL(x, gel(y,j), lx, l, p);
   } else {
+    ulong pi = get_Fl_red(p);
     for (j=1; j<ly; j++)
-      gel(z,j) = Flm_Flc_mul_i(x, gel(y,j), lx, l, p);
+      gel(z,j) = Flm_Flc_mul_i(x, gel(y,j), lx, l, p, pi);
   }
   return z;
 }
@@ -568,16 +628,57 @@ FpV_dotsquare(GEN x, GEN p)
   for (i=2; i<lx; i++) c = addii(c, sqri(gel(x,i)));
   return gerepileuptoint(av, modii(c,p));
 }
+
+INLINE ulong
+Flv_dotproduct_SMALL(GEN x, GEN y, ulong p, long lx)
+{
+  ulong c = uel(x,1) * uel(y,1);
+  long k;
+  for (k = 2; k < lx; k++) {
+    c += uel(x,k) * uel(y,k);
+    if (c & HIGHBIT) c %= p;
+  }
+  return c % p;
+}
+
+INLINE ulong
+Flv_dotproduct_i(GEN x, GEN y, ulong p, ulong pi, long lx)
+{
+  ulong l0, l1, v1, h0, h1;
+  long i = 1;
+  LOCAL_OVERFLOW;
+  LOCAL_HIREMAINDER;
+  l1 = mulll(uel(x,i), uel(y,i)); h1 = hiremainder; v1 = 0;
+  while (++i < lx) {
+    l0 = mulll(uel(x,i), uel(y,i)); h0 = hiremainder;
+    l1 = addll(l0, l1); h1 = addllx(h0, h1); v1 += overflow;
+  }
+  if (v1 == 0) return remll_pre(h1, l1, p, pi);
+  else return remlll_pre(v1, h1, l1, p, pi);
+}
+
 ulong
 Flv_dotproduct(GEN x, GEN y, ulong p)
 {
-  long i, lx = lg(x);
-  ulong c;
+  long lx = lg(x);
   if (lx == 1) return 0;
-  c = Fl_mul(x[1], y[1], p);
-  for (i=2; i<lx; i++) c = Fl_add(c, Fl_mul(x[i], y[i], p), p);
-  return c;
+  if (SMALL_ULONG(p))
+    return Flv_dotproduct_SMALL(x, y, p, lx);
+  else
+    return Flv_dotproduct_i(x, y, p, get_Fl_red(p), lx);
 }
+
+ulong
+Flv_dotproduct_pre(GEN x, GEN y, ulong p, ulong pi)
+{
+  long lx = lg(x);
+  if (lx == 1) return 0;
+  if (SMALL_ULONG(p))
+    return Flv_dotproduct_SMALL(x, y, p, lx);
+  else
+    return Flv_dotproduct_i(x, y, p, pi, lx);
+}
+
 ulong
 F2v_dotproduct(GEN x, GEN y)
 {
@@ -614,8 +715,21 @@ Flm_Flc_mul(GEN x, GEN y, ulong p)
   else if (SMALL_ULONG(p))
     return Flm_Flc_mul_i_SMALL(x, y, lx, l, p);
   else
-    return Flm_Flc_mul_i(x, y, lx, l, p);
+    return Flm_Flc_mul_i(x, y, lx, l, p, get_Fl_red(p));
 }
+
+GEN
+Flm_Flc_mul_pre(GEN x, GEN y, ulong p, ulong pi)
+{
+  long l, lx = lg(x);
+  if (lx==1) return cgetg(1,t_VECSMALL);
+  l = lgcols(x);
+  if (SMALL_ULONG(p))
+    return Flm_Flc_mul_i_SMALL(x, y, lx, l, p);
+  else
+    return Flm_Flc_mul_i(x, y, lx, l, p, pi);
+}
+
 GEN
 F2m_F2c_mul(GEN x, GEN y)
 {
@@ -672,7 +786,7 @@ Flm_transpose(GEN x)
   GEN y;
   if (lx == 1) return cgetg(1,t_MAT);
   dx = lgcols(x); y = cgetg(dx,t_MAT);
-  for (i=1; i<dx; i++) gel(y,i) = row_Flm(x,i);
+  for (i=1; i<dx; i++) gel(y,i) = Flm_row(x,i);
   return y;
 }
 
@@ -763,6 +877,14 @@ ZM_to_Flm(GEN x, ulong p)
   if (n == 1) return y;
   for (j=1; j<n; j++) gel(y,j) = ZV_to_Flv(gel(x,j), p);
   return y;
+}
+GEN
+ZMV_to_FlmV(GEN z, ulong m)
+{
+  long i, l = lg(z);
+  GEN x = cgetg(l,t_VEC);
+  for (i=1; i<l; i++) gel(x,i) = ZM_to_Flm(gel(z,i), m);
+  return x;
 }
 
 /*                          TO INTMOD                        */

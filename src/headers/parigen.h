@@ -80,7 +80,7 @@ typedef unsigned long pari_ulong;
 #define VALPBITS    ((1UL<<VALPnumBITS)-1)
 #define VARNBITS    (MAXVARN<<VARNSHIFT)
 #define MAXVARN     ((1UL<<VARNnumBITS)-1)
-#define NO_VARIABLE (2147483647L) /* > MAXVARN */
+#define NO_VARIABLE (-1)
 #define VARARGBITS  HIGHBIT
 #define ARITYBITS   (~VARARGBITS)
 
@@ -139,11 +139,15 @@ typedef unsigned long pari_ulong;
 #define setvarn(x,s)  (((ulong*)(x))[1]=\
                        (((ulong*)(x))[1]&(~VARNBITS)) | (ulong)evalvarn(s))
 
-#define varncmp(x,y)  ((x)-(y))
-
 /* t_LIST */
-#define list_nmax(x) x[1]
+
+#define list_typ(x)  ((long)(((ulong)((x)[1])) >> TYPSHIFT))
+#define list_nmax(x) ((long)(((ulong)((x)[1])) & LGBITS))
 #define list_data(x) ((GEN*)x)[2]
+enum {
+  t_LIST_RAW = 0,
+  t_LIST_MAP = 1
+};
 
 /* DO NOT REORDER THESE
  * actual values can be changed. Adapt lontyp in gen2.c */

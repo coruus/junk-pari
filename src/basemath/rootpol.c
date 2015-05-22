@@ -360,7 +360,7 @@ polgraeffe(GEN p)
 /**                                                                **/
 /********************************************************************/
 
-/* Quick approximation to log2(|x); first define y s.t. |y-x| < 2^-32 then
+/* Quick approximation to log2(|x|); first define y s.t. |y-x| < 2^-32 then
  * return y rounded to 2 ulp. In particular, if result < 2^21, absolute error
  * is bounded by 2^-31. If result > 2^21, it is correct to 2 ulp */
 static double
@@ -407,6 +407,7 @@ dbllog2(GEN z)
   switch(typ(z))
   {
     case t_INT: return mydbllog2i(z);
+    case t_FRAC: return mydbllog2i(gel(z,1))-mydbllog2i(gel(z,2));
     case t_REAL: return mydbllog2r(z);
     default: /*t_COMPLEX*/
       x = dbllog2mp(gel(z,1));
@@ -1949,10 +1950,25 @@ fix_roots(GEN r, GEN *m, long h, long bit)
 }
 
 static GEN
+RgX_normalize1(GEN x)
+{
+  long i, n = lg(x)-1;
+  GEN y;
+  for (i = n; i > 1; i--)
+    if (!gequal0( gel(x,i) )) break;
+  if (i == n) return x;
+  pari_warn(warner,"normalizing a polynomial with 0 leading term");
+  if (i == 1) pari_err_ROOTS0("roots");
+  y = cgetg(i+1, t_POL); y[1] = x[1];
+  for (; i > 1; i--) gel(y,i) = gel(x,i);
+  return y;
+}
+
+static GEN
 all_roots(GEN p, long bit)
 {
   GEN lc, pd, q, roots_pol, m;
-  long bit0,  bit2, n = degpol(p), i, e, h;
+  long bit0,  bit2, i, e, h, n = degpol(p);
   pari_sp av;
 
   pd = RgX_deflate_max(p, &h); lc = leading_term(pd);
@@ -2038,8 +2054,12 @@ roots_com(GEN q, long bit)
 {
   GEN L, p;
   long v = RgX_valrem_inexact(q, &p);
-  if (lg(p) == 3) L = cgetg(1,t_VEC); /* constant polynomial */
-  else L = isexactpol(p)? solve_exact_pol(p,bit): all_roots(p,bit);
+  int ex = isexactpol(p);
+  if (!ex) p = RgX_normalize1(p);
+  if (lg(p) == 3)
+    L = cgetg(1,t_VEC); /* constant polynomial */
+  else
+    L = ex? solve_exact_pol(p,bit): all_roots(p,bit);
   if (v)
   {
     GEN M, z, t = gel(q,2);

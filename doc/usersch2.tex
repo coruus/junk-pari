@@ -1157,8 +1157,8 @@ If the expression cannot be parsed in a way where the left hand side is an
 lvalue, raise an error.
 \bprog
 ? x + 1 = 1
-  ***   unused characters: x+1=1
-  ***                         ^--
+  ***   syntax error, unexpected '=', expecting $end or ';': x+1=1
+  ***                                                           ^--
 @eprog
 \leavevmode
 \kbd{\var{op}=}, where \var{op} is any binary operator
@@ -1297,7 +1297,9 @@ The answer is that variables are ordered implicitly by the interpreter:
 when a new identifier (e.g~$x$, or $y$ as above) is input, the corresponding
 variable is registered as having a strictly lower priority than any variable in
 use at this point\footnote{*}{This is not strictly true:
-the variable $x$ is predefined and always has the highest possible priority.}%
+the variables $x$ and $y$ are predefined, and satisfy $x > y$.
+Variables of higher priority than $x$ can be created
+using \tet{varhigher}.}%
 . To see the ordering used by \kbd{gp} at any given time, type
 \kbd{variable()}.\kbdsidx{variable}
 
@@ -2219,10 +2221,14 @@ bytecode; then the latter is evaluated, calling appropriate functions from
 the PARI library. Accordingly, there are two kind of errors: syntax errors
 produced by the compiler, and runtime errors produced by the PARI library
 either by the evaluator itself, or in a mathematical function.
-Both kinds are fatal to your computation: \kbd{gp} will report the error,
-perform some cleanup (restore variables modified while evaluating the
-erroneous command, close open files, reclaim unused memory, etc.), and output
-its usual prompt.
+Both kinds are fatal to your computation: \kbd{gp} will report the error
+and perform some cleanup (restore variables modified while evaluating the
+erroneous command, close open files, reclaim unused memory, etc.).
+
+At this point, the default is to return to the usual prompt, but if the
+\kbd{recover} option (\secref{se:def,recover}) is off then \kbd{gp} exits
+immediately.  This can be useful for batch-mode operation to make untrapped
+errors fatal.
 
 When reporting a \emph{syntax error}, \kbd{gp} gives meaningful
 context by copying (part of) the expression it was trying to compile,
@@ -3103,11 +3109,9 @@ conditions).
 
   For instance, shortly after a \kbd{\til}, we expect a user name, then a
 path to some file. Directly after \kbd{default(} has been typed, we would
-expect one of the \kbd{default} keywords. After \kbd{whatnow(} , we expect
-the name of an old function, which may well have disappeared from this
-version. After a '.', we expect a member keyword. And generally of course, we
-expect any GP symbol which may be found in the hashing lists: functions (both
-yours and GP's), and variables.
+expect one of the \kbd{default} keywords. After a '.', we expect a member
+keyword. And generally of course, we expect any GP symbol which may be found
+in the hashing lists: functions (both yours and GP's), and variables.
 
   If, at any time, only one completion is meaningful, \kbd{gp} will provide it
 together with

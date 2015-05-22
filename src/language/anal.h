@@ -22,6 +22,7 @@ BEGINEXTERN
 { GEN z; GEN __E = code; \
   push_lex(gen_0, __E); z = call; pop_lex(1); return z; }
 #define EXPR_ARG __E, &gp_eval
+#define EXPR_ARGPREC __E, &gp_evalprec
 #define EXPR_ARGUPTO __E, &gp_evalupto
 #define EXPR_ARGBOOL __E, &gp_evalbool
 
@@ -48,8 +49,8 @@ union token_value { long val; };
 
 int pari_lex(union token_value *yylval, struct node_loc *yylloc, char **lex);
 int pari_parse(char **lex);
-entree* fetch_entry(const char *s, long len);
-entree* fetch_member(const char *s, long len);
+entree* fetch_entry_raw(const char *s, long len);
+entree* fetch_entry(const char *s);
 void pari_close_parser(void);
 void pari_close_compiler(void);
 void pari_close_evaluator(void);

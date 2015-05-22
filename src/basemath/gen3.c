@@ -25,6 +25,40 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 /**                 PRINCIPAL VARIABLE NUMBER                      **/
 /**                                                                **/
 /********************************************************************/
+static void
+recvar(hashtable *h, GEN x)
+{
+  long i = 1, lx = lg(x);
+  void *v;
+  switch(typ(x))
+  {
+    case t_POL: case t_SER:
+      v = (void*)varn(x);
+      if (!hash_search(h, v)) hash_insert(h, v, NULL);
+      i = 2; break;
+    case t_POLMOD: case t_RFRAC:
+    case t_VEC: case t_COL: case t_MAT: break;
+    case t_LIST:
+      x = list_data(x);
+      lx = x? lg(x): 1; break;
+    default:
+      return;
+  }
+  for (; i < lx; i++) recvar(h, gel(x,i));
+}
+
+GEN
+variables_vecsmall(GEN x)
+{
+  hashtable *h = hash_create_ulong(100, 1);
+  recvar(h, x);
+  return vars_sort_inplace(hash_keys(h));
+}
+
+GEN
+variables_vec(GEN x)
+{ return x? vars_to_RgXV(variables_vecsmall(x)): gpolvar(NULL); }
+
 long
 gvar(GEN x)
 {
@@ -362,9 +396,8 @@ degree(GEN x)
 GEN
 pollead(GEN x, long v)
 {
-  long l, tx = typ(x), w;
+  long tx = typ(x), w;
   pari_sp av;
-  GEN xinit;
 
   if (is_scalar_t(tx)) return gcopy(x);
   w = varn(x);
@@ -373,33 +406,25 @@ pollead(GEN x, long v)
     case t_POL:
       if (v < 0 || v == w)
       {
-        l=lg(x);
+        long l = lg(x);
         return (l==2)? gen_0: gcopy(gel(x,l-1));
       }
       break;
 
     case t_SER:
       if (v < 0 || v == w) return signe(x)? gcopy(gel(x,2)): gen_0;
+      if (varncmp(v, w) > 0) x = polcoeff_i(x, valp(x), v);
       break;
 
     default:
       pari_err_TYPE("pollead",x);
       return NULL; /* not reached */
   }
-  if (v < w) return gcopy(x);
-  av = avma; xinit = x;
-  x = gsubst(gsubst(x,w,pol_x(MAXVARN)),v,pol_x(0));
-  if (gvar(x)) { avma = av; return gcopy(xinit);}
-  tx = typ(x);
-  if (tx == t_POL) {
-    l = lg(x); if (l == 2) { avma = av; return gen_0; }
-    x = gel(x,l-1);
-  }
-  else if (tx == t_SER) {
-    if (!signe(x)) { avma = av; return gen_0;}
-    x = gel(x,2);
-  } else pari_err_TYPE("pollead",x);
-  return gerepileupto(av, gsubst(x,MAXVARN,pol_x(w)));
+  if (varncmp(v, w) < 0) return gcopy(x);
+  av = avma; w = fetch_var_higher();
+  x = gsubst(x, v, pol_x(w));
+  x = pollead(x, w);
+  delete_var(); return gerepileupto(av, x);
 }
 
 /* returns 1 if there's a real component in the structure, 0 otherwise */
@@ -1150,8 +1175,8 @@ checkdeflate(GEN x)
 {
   ulong d = 0, i, lx = (ulong)lg(x);
   for (i=3; i<lx; i++)
-    if (!gequal0(gel(x,i))) { d = ugcd(d,i-2); if (d == 1) break; }
-  return (long)d;
+    if (!gequal0(gel(x,i))) { d = ugcd(d,i-2); if (d == 1) return 1; }
+  return d? (long)d: 1;
 }
 
 /* deflate (non-leaf) x recursively */
@@ -1603,7 +1628,7 @@ derivser(GEN x)
 GEN
 deriv(GEN x, long v)
 {
-  long lx, vx, tx, i, j;
+  long lx, tx, i, j;
   pari_sp av;
   GEN y;
 
@@ -1625,17 +1650,21 @@ deriv(GEN x, long v)
       retmkpolmod(deriv(a,v), RgX_copy(b));
     }
     case t_POL:
-      vx = varn(x);
-      if (varncmp(vx, v) > 0) return RgX_get_0(x);
-      if (varncmp(vx, v) == 0) return RgX_deriv(x);
+      switch(varncmp(varn(x), v))
+      {
+        case 1: return RgX_get_0(x);
+        case 0: return RgX_deriv(x);
+      }
       y = cgetg_copy(x, &lx); y[1] = x[1];
       for (i=2; i<lx; i++) gel(y,i) = deriv(gel(x,i),v);
       return normalizepol_lg(y,i);
 
     case t_SER:
-      vx = varn(x);
-      if (varncmp(vx, v) > 0) return RgX_get_0(x);
-      if (varncmp(vx, v) == 0) return derivser(x);
+      switch(varncmp(varn(x), v))
+      {
+        case 1: return RgX_get_0(x);
+        case 0: return derivser(x);
+      }
       if (ser_isexactzero(x)) return gcopy(x);
       y = cgetg_copy(x, &lx); y[1] = x[1];
       for (j=2; j<lx; j++) gel(y,j) = deriv(gel(x,j),v);
@@ -1775,20 +1804,10 @@ diffop0(GEN x, GEN v, GEN dv, long n)
 static GEN
 swapvar_act(GEN x, long vx, long v, GEN (*act)(void*, long, GEN), void *data)
 {
-  GEN y;
-  if (v != MAXVARN) { /* (vx,v) -> (MAXVARN, v) */
-    y = act(data, v, gsubst(x,vx,pol_x(MAXVARN)));
-    y = gsubst(y,MAXVARN,pol_x(vx));
-  } else if (vx != 0) { /* (vx,v) -> (vx, 0) */
-    y = act(data, 0, gsubst(x,v,pol_x(0)));
-    y = gsubst(y,0,pol_x(v));
-  } else { /* (0,MAXVARN) -> (w, 0) */
-    long w = fetch_var();
-    y = act(data, 0, gsubst(gsubst(x,0,pol_x(w)), MAXVARN,pol_x(0)));
-    y = gsubst(gsubst(y,0,pol_x(MAXVARN)), w,pol_x(0));
-    (void)delete_var();
-  }
-  return y;
+  long v0 = fetch_var();
+  GEN y = act(data, v, gsubst(x,vx,pol_x(v0)));
+  y = gsubst(y,v0,pol_x(vx));
+  (void)delete_var(); return y;
 }
 /* x + O(v^data) */
 static GEN
@@ -2552,7 +2571,7 @@ mkvecsmalln(long n, ...)
   long i;
   va_start(ap,n);
   x = cgetg(n+1, t_VECSMALL);
-  for (i=1; i <= n; i++) gel(x,i) = va_arg(ap, GEN);
+  for (i=1; i <= n; i++) x[i] = va_arg(ap, long);
   va_end(ap); return x;
 }
 
@@ -2888,6 +2907,7 @@ gtovec(GEN x)
       for (i=1; i<lx; i++) gel(y,i) = gcopy(gel(x,i));
       return y;
     case t_LIST:
+      if (list_typ(x) == t_LIST_MAP) return mapdomain(x);
       x = list_data(x); lx = x? lg(x): 1;
       y = cgetg(lx, t_VEC);
       for (i=1; i<lx; i++) gel(y,i) = gcopy(gel(x,i));
@@ -2915,7 +2935,7 @@ gtovec(GEN x)
 GEN
 gtovecrev0(GEN x, long n)
 {
-  GEN y = gtovec0(x, n);
+  GEN y = gtovec0(x, -n);
   vecreverse_inplace(y);
   return y;
 }
@@ -2949,7 +2969,7 @@ gtocol(GEN x)
 GEN
 gtocolrev0(GEN x, long n)
 {
-  GEN y = gtocol0(x, n);
+  GEN y = gtocol0(x, -n);
   long ly = lg(y), lim = ly>>1, i;
   for (i = 1; i <= lim; i++) swap(gel(y,i), gel(y,ly-i));
   return y;
@@ -3177,7 +3197,7 @@ _rfraccoeff(GEN x, long n, long v)
 {
   GEN P,Q, p = gel(x,1), q = gel(x,2);
   long vp = gvar(p), vq = gvar(q);
-  if (v < 0) v = minss(vp, vq);
+  if (v < 0) v = varncmp(vp, vq) < 0? vp: vq;
   P = (vp == v)? p: swap_vars(p, v);
   Q = (vq == v)? q: swap_vars(q, v);
   if (!RgX_is_monomial(Q)) pari_err_TYPE("polcoeff", x);
@@ -3678,10 +3698,27 @@ RgM_mulreal(GEN x, GEN y)
 /*                                                                 */
 /*******************************************************************/
 static long
+_egal_i(GEN x, GEN y)
+{
+  x = simplify_shallow(x);
+  y = simplify_shallow(y);
+  if (typ(y) == t_INT)
+  {
+    if (equali1(y)) return gequal1(x);
+    if (equalim1(y)) return gequalm1(x);
+  }
+  else if (typ(x) == t_INT)
+  {
+    if (equali1(x)) return gequal1(y);
+    if (equalim1(x)) return gequalm1(y);
+  }
+  return gequal(x, y);
+}
+static long
 _egal(GEN x, GEN y)
 {
   pari_sp av = avma;
-  long r = gequal(simplify_shallow(x), simplify_shallow(y));
+  long r = _egal_i(x, y);
   avma = av; return r;
 }
 
@@ -4004,4 +4041,28 @@ poleval(GEN x, GEN y)
     }
   }
   return gerepileupto(av0, gadd(p2, gmul(y,p1)));
+}
+
+/* Evaluate a polynomial using Horner. Unstable!
+ * If ui != NULL, ui = 1/u, evaluate P(1/u)*u^(deg P): useful for |u|>1 */
+GEN
+RgX_cxeval(GEN T, GEN u, GEN ui)
+{
+  pari_sp ltop = avma;
+  GEN S;
+  long n, lim = lg(T)-1;
+  if (lim == 1) return gen_0;
+  if (lim == 2) return gcopy(gel(T,2));
+  if (!ui)
+  {
+    n = lim; S = gel(T,n);
+    for (n--; n >= 2; n--) S = gadd(gmul(u,S), gel(T,n));
+  }
+  else
+  {
+    n = 2; S = gel(T,2);
+    for (n++; n <= lim; n++) S = gadd(gmul(ui,S), gel(T,n));
+    S = gmul(gpowgs(u, lim-2), S);
+  }
+  return gerepileupto(ltop, S);
 }

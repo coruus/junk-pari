@@ -1,4 +1,4 @@
-#!@perl@
+#!@runtime_perl@
 # Copyright (C) 2000  The PARI group.
 #
 # This file is part of the PARI/GP package.
@@ -72,7 +72,7 @@ cleanexit();
 # Procedures
 #
 sub cleanexit {
-  print "\e[0m" unless $to_pod;
+  print "\e[0m" unless $to_pod or $raw;
   exit 0;
 }
 
@@ -857,7 +857,7 @@ sub basic_subst {
   s/\\langle(?![a-zA-Z])\s*/$tr{startcode}$tr{lt}$tr{endcode}/g;
   s/\\rightarrow(?![a-zA-Z])\s*/$tr{startcode}--$tr{gt}$tr{endcode}/g;
   s/\\longleftrightarrow(?![a-zA-Z])\s*/$tr{startcode}$tr{lt}-----$tr{gt}$tr{endcode}/g;
-  s/\\mapsto(?![a-zA-Z])\s*/$tr{startcode}|---$tr{gt}$tr{endcode}/g;
+  s/\\mapsto(?![a-zA-Z])\s*/$tr{startcode}:---$tr{gt}$tr{endcode}/g;
   s/ *\\geq?(?![a-zA-Z]) *([^ ])/ $tr{startcode}$tr{gt}=$tr{endcode} $1/g;
   s/ *\\leq?(?![a-zA-Z]) *([^ ])/ $tr{startcode}$tr{lt}=$tr{endcode} $1/g;
   s/ *\\gg?(?![a-zA-Z]) *([^ ])/ $tr{startcode}$tr{gt}$tr{gt}$tr{endcode} $1/g;

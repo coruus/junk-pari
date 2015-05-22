@@ -79,7 +79,7 @@ Qt4)
   PLOTLIBS="-L\$(QTDIR)/lib $QTLIB"
   graph=plotQt4;;
 fltk)
-  PLOTCFLAGS="-I\$(FLTKDIR)/include $X11_INC"
+  PLOTCFLAGS=
   PLOTLIBS="$FLTK_LIBS"
   postconfig='fltk-config --post '
   graph=plotfltk;;
@@ -272,9 +272,7 @@ QTDIR      = "$QTDIR"
 MOC        = \$(QTDIR)/bin/moc
 PLOTCFLAGS = $PLOTCFLAGS
 PLOTLIBS   = $PLOTLIBS
-CPLUSPLUS  = g++
-
-FLTKDIR    = "$FLTKDIR"
+CXX        = g++
 
 TOPLDDYN   = "$TOP/$objdir"
 # Description system
@@ -322,17 +320,17 @@ test-kernel:: kerntest
 	diff -c gp.out $src/test/32/kernel > kern.dif;\
 	if test -s kern.dif; then echo "KERNEL BUG"; else echo OK; fi
 
-tune.o: $src/test/tune.c
-	\$(CC) \$(GMPFLAGS) \$(CPPFLAGS) \$(CFLAGS) -o \$@ \$< -c
+tune\$(_O): .headers $src/test/tune.c
+	\$(CC) \$(GMPFLAGS) \$(CPPFLAGS) \$(CFLAGS) -o \$@ $src/test/tune.c -c
 
 tune: mpinl.h tune-sta
 	-\$(RM) tune ../tune
 	-\$(LN) tune-sta tune
 	-\$(LN) $ln_objdir/tune ../tune
 
-tune-dyn: tune.o \$(LIBPARI_DYN)
+tune-dyn: tune\$(_O) \$(LIBPARI_DYN)
 	\$(LD) -L. \$(LDFLAGS) \$(RUNPTH) -o \$@ \$< \$(GMPOBJS) \$(LDDYN) \$(STA_LIBS)
-tune-sta: tune.o \$(LIBPARI_STA)
+tune-sta: tune\$(_O) \$(LIBPARI_STA)
 	\$(LD) \$(LDFLAGS) \$(RUNPTH) -o \$@ \$< \$(GMPOBJS) ./\$(LIBPARI_STA) \$(STA_LIBS)
 
 gp-sta: $add_funclist \$(OBJS) \$(OBJSGP)
@@ -349,7 +347,7 @@ cleanobj:
 cleandesc:
 	-\$(RM) $desc/\$(DESC) *\$(TMPSUF)
 cleantune:
-	-\$(RM) tune tune-sta tune.o
+	-\$(RM) tune tune-sta tune\$(_O)
 
 cleanall: cleanobj cleantune cleantest cleandesc
 
@@ -423,10 +421,9 @@ install-cfg::
 	   \$(INSTALL_DATA) $desc/PARI/822.pm \$(DATADIR)/PARI;\
 	   \$(INSTALL_DATA) $desc/\$(DESC) \$(DATADIR); fi
 
-install-doc::
-	-mkdir -p \$(BINDIR) \$(DOCDIR)
-	-cd $doc; \$(MAKE) all
-	-\$(INSTALL_PROGRAM) $doc/gphelp    \$(BINDIR)
+install-doc: install-gphelp install-docdvi
+	-mkdir -p \$(DOCDIR)
+	-cd $doc; \$(MAKE) usersch3.tex
 	-\$(INSTALL_DATA) $doc/translations \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/appa.tex     \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/appb.tex     \$(DOCDIR)
@@ -443,6 +440,14 @@ install-doc::
 	-\$(INSTALL_DATA) $doc/usersch4.tex \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/usersch5.tex \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/paricfg.tex  \$(DOCDIR)
+
+install-gphelp::
+	-mkdir -p \$(BINDIR)
+	-\$(INSTALL_PROGRAM) $doc/gphelp    \$(BINDIR)
+
+install-docdvi::
+	-mkdir -p \$(DOCDIR)
+	-cd $doc; \$(MAKE) doc
 	-\$(INSTALL_DATA) $doc/develop.dvi  \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/libpari.dvi  \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/users.dvi    \$(DOCDIR)
@@ -451,7 +456,7 @@ install-doc::
 	-\$(INSTALL_DATA) $doc/refcard.ps   \$(DOCDIR)
 
 install-docpdf::
-	-mkdir -p \$(BINDIR) \$(DOCDIR)
+	-mkdir -p \$(DOCDIR)
 	-cd $doc; \$(MAKE) docpdf
 	-\$(INSTALL_DATA) $doc/libpari.pdf  \$(DOCDIR)
 	-\$(INSTALL_DATA) $doc/users.pdf    \$(DOCDIR)
@@ -625,18 +630,13 @@ HUGELINE="
 $src/funclist::
 	@-$cfg/genfunclist $desc"
 suffix='$$$$-$(TMPSUF)'
-list="funclist whatnow init default gp_init highlvl"
+list="funclist init default gp_init highlvl"
 for name in $list; do
   case $name in
   funclist)
     target="$desc/\$(DESC)"
     depend="$src/funclist $desc/merge_822 $desc/PARI/822.pm"
     script="merge_822 ../funclist"
-  ;;
-  whatnow)
-    target=$src/gp/whatnow.h
-    depend="$desc/whatnow $src/whatnow $src/gp/gp_init.h $src/gp/highlvl.h $src/language/init.h"
-    script=whatnow
   ;;
   init)
     target=$src/language/init.h
@@ -710,15 +710,11 @@ for dir in basemath modules language gp graph systems mt; do
   case "$f" in
   gp)
     cflags="$cflags -I$src/language -DDL_DFLT_NAME=\$(DL_DFLT_NAME)"
-    depend="$src/gp/gp.h"
+    depend="$src/gp/gp.h $src/gp/highlvl.h $src/gp/gp_init.h"
     ;;
   gp_rl|texmacs)
     cflags="$cflags -I$src/language \$(RLINCLUDE)"
     depend="$src/gp/gp.h"
-    ;;
-  gp_init)
-    cflags="$cflags -I$src/graph"
-    depend="$RECT_H $src/gp/gp_init.h"
     ;;
   default)
     cflags="$cflags \$(DLCFLAGS)"
@@ -731,23 +727,21 @@ for dir in basemath modules language gp graph systems mt; do
     cflags="$cflags -I$src/graph"
     depend="$RECT_H"
     ;;
-  highlvl)
-    depend="$RECT_H $src/gp/highlvl.h"
-    ;;
   plotQt)
     cflags="$cflags \$(PLOTCFLAGS)"
     depend="$RECT_H"
-    compile="\$(MOC) -o plotQt.moc.cpp $src/graph/plotQt.c && \$(CPLUSPLUS)"
+    compile="\$(MOC) -o plotQt.moc.cpp $src/graph/plotQt.c && \$(CXX)"
     ;;
   plotQt4)
     cflags="$cflags \$(PLOTCFLAGS)"
     depend="$RECT_H"
-    compile="\$(MOC) \$(PLOTCFLAGS) -o plotQt4.moc.cpp $src/graph/plotQt4.c && \$(CPLUSPLUS)"
+    compile="\$(MOC) \$(PLOTCFLAGS) -o plotQt4.moc.cpp $src/graph/plotQt4.c
+&& \$(CXX)"
     ;;
   plotfltk)
     cflags="$cflags \$(PLOTCFLAGS)"
     depend="$RECT_H"
-    compile="\$(CPLUSPLUS)"
+    compile="\$(CXX)"
     ;;
   plot*)
     cflags="$cflags \$(PLOTCFLAGS)"

@@ -519,9 +519,9 @@ polymini_zi(GEN pol) /* polynome minimal dans Z[i] */
 static GEN
 polymini_zi2(GEN pol)
 {
-  long alpha, beta, v = MAXVARN;
+  long alpha, beta;
   GEN a0, a1, a2, a3, a4, a5, a6;
-  GEN p, polh, rac, theta, y = pol_x(v);
+  GEN p, polh, rac, theta, y = pol_x(fetch_var());
 
   p = stoi(3);
   if (polval(pol,p)) pari_err_BUG("polymini_zi2 [polynomial not minimal]");
@@ -529,7 +529,11 @@ polymini_zi2(GEN pol)
   polh = pol;
   polh = gdivgs(RgX_unscale(polh, y),27); /* H(y*x) / 27 */
   if (myval_zi2(RgX_coeff(polh,4)) <= 0 ||
-      myval_zi2(RgX_coeff(polh,2)) <= 0) return mkcol2(gen_0, gen_0);
+      myval_zi2(RgX_coeff(polh,2)) <= 0)
+  {
+    (void)delete_var();
+    return mkcol2(gen_0, gen_0);
+  }
 
   if (myval_zi2(gsub(RgX_coeff(polh,6), RgX_coeff(polh,0))) > 0)
     rac = gen_I();
@@ -566,6 +570,7 @@ polymini_zi2(GEN pol)
     }
     else pari_err_BUG("polymini_zi2 [alpha]");
   }
+  (void)delete_var();
   return mkcol2(theta, stoi(beta));
 }
 
@@ -2185,12 +2190,24 @@ chk_pol(GEN P) {
 
 /* P,Q are ZX, study Y^2 + Q(X) Y = P(X) */
 GEN
-genus2red(GEN Q, GEN P, GEN p)
+genus2red(GEN PQ, GEN p)
 {
   pari_sp av = avma;
   struct igusa I;
+  GEN P, Q;
   GEN j22, j42, j2j6, a0,a1,a2,a3,a4,a5,a6, V,polr,facto,factp, vecmini, cond;
   long i, l, dd, vP,vQ;
+
+  if (typ(PQ) == t_VEC && lg(PQ) == 3)
+  {
+    P = gel(PQ,1);
+    Q = gel(PQ,2);
+  }
+  else
+  {
+    P = PQ;
+    Q = gen_0;
+  }
 
   vP = chk_pol(P);
   vQ = chk_pol(Q);

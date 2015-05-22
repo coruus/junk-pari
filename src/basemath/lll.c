@@ -100,18 +100,24 @@ static long
 Babai(pari_sp av, long kappa, GEN *pG, GEN *pB, GEN *pU, GEN mu, GEN r, GEN s,
       long a, long zeros, long maxG, long n, GEN eta, GEN halfplus1, long prec)
 {
+  pari_sp av0 = avma;
   GEN B = *pB, G = *pG, U = *pU, tmp, rtmp, ztmp;
   long k, aa = (a > zeros)? a : zeros+1;
   GEN maxmu = gen_0, max2mu = gen_0;
   /* N.B: we set d = 0 (resp. n = 0) to avoid updating U (resp. B) */
   const long d = U ? lg(U)-1: 0;
 
+  if (gc_needed(av,2))
+  {
+    if(DEBUGMEM>1) pari_warn(warnmem,"Babai[0], a=%ld", aa);
+    gerepileall(av,U?3:2,&B,&G,&U);
+  }
   for (;;) {
     int go_on = 0;
     GEN max3mu;
     long i, j;
 
-    if (gc_needed(av,2))
+    if (gc_needed(av0,2))
     {
       if(DEBUGMEM>1) pari_warn(warnmem,"Babai[1], a=%ld", aa);
       gerepileall(av,U?5:4,&B,&G,&maxmu,&max2mu,&U);
@@ -156,7 +162,7 @@ Babai(pari_sp av, long kappa, GEN *pG, GEN *pB, GEN *pU, GEN mu, GEN r, GEN s,
       tmp = gmael(mu,kappa,j);
       if (absr_cmp(tmp, eta) <= 0) continue; /* (essentially) size-reduced */
 
-      if (gc_needed(av,2))
+      if (gc_needed(av0,2))
       {
         if(DEBUGMEM>1) pari_warn(warnmem,"Babai[2], a=%ld, j=%ld", aa,j);
         gerepileall(av,U?5:4,&B,&G,&maxmu,&max2mu,&U);
@@ -517,7 +523,6 @@ ZM_lll_norms(GEN x, double DELTA, long flag, GEN *B)
       incrprec(p);
     gerepileall(ltop, U? 2: 1, &x, &U);
   }
-  return NULL; /* NOT REACHED */
 }
 
 /********************************************************************/
@@ -795,32 +800,32 @@ qflllgram0(GEN x, long flag)
 /**                   INTEGRAL KERNEL (LLL REDUCED)                **/
 /**                                                                **/
 /********************************************************************/
-/* Horribly slow (coeff explosion in small dimension): never use this */
 static GEN
-kerint1(GEN x)
+kerint0(GEN M)
+{
+  GEN U, H = ZM_hnfall(M,&U,1);
+  long d = lg(M)-lg(H);
+  if (!d) return cgetg(1, t_MAT);
+  return ZM_lll(vecslice(U,1,d), LLLDFT, LLL_INPLACE);
+}
+GEN
+kerint(GEN M)
 {
   pari_sp av = avma;
-  return gerepilecopy(av, ZM_lll(QM_ImQ_hnf(ker(x)), LLLDFT, LLL_INPLACE));
+  return gerepilecopy(av, kerint0(M));
 }
-/* Mostly useless: use ZM_lll(x, 0.99, LLL_KER) directly */
+/* OBSOLETE: use kerint */
 GEN
-kerint(GEN x)
+matkerint0(GEN M, long flag)
 {
   pari_sp av = avma;
-  GEN h = ZM_lll(x, LLLDFT, LLL_KER);
-  if (lg(h)==1) { avma = av; return cgetg(1, t_MAT); }
-  return gerepilecopy(av, ZM_lll(h, LLLDFT, LLL_INPLACE));
-}
-
-GEN
-matkerint0(GEN x, long flag)
-{
-  if (typ(x) != t_MAT) pari_err_TYPE("matkerint",x);
-  RgM_check_ZM(x, "kerint");
+  if (typ(M) != t_MAT) pari_err_TYPE("matkerint",M);
+  M = Q_primpart(M);
+  RgM_check_ZM(M, "kerint");
   switch(flag)
   {
-    case 0: return kerint(x);
-    case 1: return kerint1(x);
+    case 0:
+    case 1: return gerepilecopy(av, kerint0(M));
     default: pari_err_FLAG("matkerint");
   }
   return NULL; /* not reached */

@@ -319,6 +319,7 @@ znstar(GEN N)
     gel(gen,i) = e > 1? pgener_Zp(p): pgener_Fp(p);
     gel(mod,i) = Q;
   }
+  /* gen[i] has order cyc[i] and generates (Z/mod[i]Z)^* */
   setlg(gen, sizeh+1);
   setlg(cyc, sizeh+1);
   if (nbp > 1)
@@ -329,7 +330,7 @@ znstar(GEN N)
       gel(gen,i) = modii(g, N);
     }
 
-  /*The cyc[i] are > 1. They remain so in the loop*/
+  /*The cyc[i] are > 1 and remain so in the loop, gen[i] = 1 mod (N/mod[i]) */
   for (i=sizeh; i>=2; i--)
   {
     GEN ci = gel(cyc,i), gi = gel(gen,i);
@@ -703,15 +704,19 @@ polissquareall(GEN x, GEN *pt)
   }
   else
   {
+    long m = 1;
     x = RgX_Rg_div(x,a);
-    y = gtrunc(gsqrt(RgX_to_ser(x,lg(x)),0));
-    if (!RgX_equal(gsqr(y), x)) { avma = av; return 0; }
+    /* a(x^m) = B^2 => B = b(x^m) provided a(0) != 0 */
+    if (!signe(p)) x = RgX_deflate_max(x,&m);
+    y = ser2rfrac_i(gsqrt(RgX_to_ser(x,lg(x)-1),0));
+    if (!RgX_equal(RgX_sqr(y), x)) { avma = av; return 0; }
     if (!pt) { avma = av; return 1; }
     if (!gequal1(a)) y = gmul(b, y);
+    if (m != 1) y = RgX_inflate(y,m);
   }
 END:
-  *pt = v? gerepilecopy(av, RgX_shift_shallow(y, v >> 1)): gerepileupto(av, y);
-  return 1;
+  if (v) y = RgX_shift_shallow(y, v>>1);
+  *pt = gerepilecopy(av, y); return 1;
 }
 
 /* b unit mod p */
@@ -1314,6 +1319,7 @@ Z_isanypower_aux(GEN x, GEN *pty)
 
   if (absi_cmp(x, gen_2) < 0) return 0; /* -1,0,1 */
 
+  if (signe(x) < 0) x = negi(x);
   k = l = 1;
   P = cgetg(26 + 1, t_VECSMALL);
   E = cgetg(26 + 1, t_VECSMALL);
@@ -1432,8 +1438,8 @@ Z_ispow2(GEN n)
   return !(u & (u-1)); /* faster than hamming_word(u) == 1 */
 }
 
-long
-isprimepower(GEN n, GEN *pt)
+static long
+isprimepower_i(GEN n, GEN *pt, long flag)
 {
   pari_sp av = avma;
   long i, v;
@@ -1466,10 +1472,14 @@ isprimepower(GEN n, GEN *pt)
   }
   /* p | n => p >= 103 */
   v = Z_isanypower_nosmalldiv(&n); /* expensive */
-  if (!isprime(n)) { avma = av; return 0; }
+  if (!(flag? isprime(n): BPSW_psp(n))) { avma = av; return 0; }
   if (pt) *pt = gerepilecopy(av, n); else avma = av;
   return v;
 }
+long
+isprimepower(GEN n, GEN *pt) { return isprimepower_i(n,pt,1); }
+long
+ispseudoprimepower(GEN n, GEN *pt) { return isprimepower_i(n,pt,0); }
 
 long
 uisprimepower(ulong n, ulong *pp)
@@ -2414,11 +2424,11 @@ chinese1_coprime_Z(GEN x) {return gassoc_proto(chinese1_coprime_Z_aux,x,NULL);}
 /*********************************************************************/
 
 /* xa, ya = t_VECSMALL */
-static GEN
+GEN
 ZV_producttree(GEN xa)
 {
   long n = lg(xa)-1;
-  long m = expu(n-1)+1;
+  long m = n==1 ? 1: expu(n-1)+1;
   GEN T = cgetg(m+1, t_VEC), t;
   long i, j, k;
   t = cgetg(((n+1)>>1)+1, t_VEC);
@@ -2545,6 +2555,36 @@ ZV_polint_tree(GEN T, GEN R, GEN xa, GEN ya)
   return gmael(Tp,m,1);
 }
 
+static GEN
+ncV_polint_tree(GEN T, GEN R, GEN xa, GEN Va)
+{
+  long i, j, l = lg(gel(Va,1)), n = lg(xa);
+  GEN V = cgetg(l, t_COL);
+  for(i=1; i < l; i++)
+  {
+    pari_sp av = avma;
+    GEN ya = cgetg(n, t_VECSMALL);
+    for(j=1; j < n; j++)
+      ya[j] = mael(Va,j,i);
+    gel(V,i) = gerepilecopy(av, ZV_polint_tree(T, R, xa, ya));
+  }
+  return V;
+}
+
+static GEN
+nmV_polint_tree(GEN T, GEN R, GEN xa, GEN Ma)
+{
+  long i, j, l = lg(gel(Ma,1)), n = lg(xa);
+  GEN ya = cgetg(n, t_VEC);
+  GEN M = cgetg(l, t_MAT);
+  for(i=1; i < l; i++)
+  {
+    for(j=1; j < n; j++)
+      gel(ya,j) = gmael(Ma,j,i);
+    gel(M,i) = ncV_polint_tree(T, R, xa, ya);
+  }
+  return M;
+}
 GEN
 Z_ZV_mod(GEN P, GEN xa)
 {
@@ -2557,6 +2597,27 @@ GEN
 Z_nv_mod(GEN P, GEN xa)
 {
   return Z_ZV_mod(P, xa);
+}
+
+GEN
+ZX_nv_mod_tree(GEN P, GEN xa, GEN T)
+{
+  long i, j, l = lg(P), n = lg(xa)-1;
+  GEN V = cgetg(n+1, t_VEC);
+  for (j=1; j <= n; j++)
+  {
+    gel(V, j) = cgetg(l, t_VECSMALL);
+    mael(V, j, 1) = P[1]&VARNBITS;
+  }
+  for (i=2; i < l; i++)
+  {
+    GEN v = Z_ZV_mod_tree(gel(P, i), xa, T);
+    for (j=1; j <= n; j++)
+      mael(V, j, i) = v[j];
+  }
+  for (j=1; j <= n; j++)
+    (void) Flx_renormalize(gel(V, j), l);
+  return V;
 }
 
 static GEN
@@ -2613,6 +2674,23 @@ ZV_chinesetree(GEN T, GEN xa)
 }
 
 GEN
+ZV_chinese_tree(GEN A, GEN P, GEN T, GEN *pt_mod)
+{
+  pari_sp av = avma;
+  GEN R = ZV_chinesetree(T, P);
+  GEN a = ZV_polint_tree(T, R, P, A);
+  if (!pt_mod)
+    return gerepileuptoleaf(av, a);
+  else
+  {
+    GEN mod = gmael(T, lg(T)-1, 1);
+    gerepileall(av, 2, &a, &mod);
+    *pt_mod = mod;
+    return a;
+  }
+}
+
+GEN
 ZV_chinese(GEN A, GEN P, GEN *pt_mod)
 {
   pari_sp av = avma;
@@ -2620,7 +2698,25 @@ ZV_chinese(GEN A, GEN P, GEN *pt_mod)
   GEN R = ZV_chinesetree(T, P);
   GEN a = ZV_polint_tree(T, R, P, A);
   if (!pt_mod)
-    return gerepileuptoleaf(av, a);
+    return gerepileuptoint(av, a);
+  else
+  {
+    GEN mod = gmael(T, lg(T)-1, 1);
+    gerepileall(av, 2, &a, &mod);
+    *pt_mod = mod;
+    return a;
+  }
+}
+
+GEN
+nmV_chinese(GEN A, GEN P, GEN *pt_mod)
+{
+  pari_sp av = avma;
+  GEN T = ZV_producttree(P);
+  GEN R = ZV_chinesetree(T, P);
+  GEN a = nmV_polint_tree(T, R, P, A);
+  if (!pt_mod)
+    return gerepileupto(av, a);
   else
   {
     GEN mod = gmael(T, lg(T)-1, 1);
@@ -2677,30 +2773,28 @@ Fl_powu(ulong x, ulong n0, ulong p)
   }
 }
 
+/* Reduce data dependency to maximize internal parallelism */
 GEN
 Fl_powers_pre(ulong x, long n, ulong p, ulong pi)
 {
-  long i;
+  long i, k;
   GEN powers = cgetg(n + 2, t_VECSMALL);
-  powers[1] = 1;
-  for (i = 2; i <= n + 1; ++i)
-    powers[i] = Fl_mul_pre(x, powers[i - 1], p, pi);
+  powers[1] = 1; if (n == 0) return powers;
+  powers[2] = x;
+  for (i = 3, k=2; i <= n; i+=2, k++)
+  {
+    powers[i] = Fl_mul_pre(powers[k], powers[k], p, pi);
+    powers[i+1] = Fl_mul_pre(powers[k], powers[k+1], p, pi);
+  }
+  if (i==n+1)
+    powers[i] = Fl_mul_pre(powers[k], powers[k], p, pi);
   return powers;
 }
 
 GEN
 Fl_powers(ulong x, long n, ulong p)
 {
-  if (!SMALL_ULONG(p)) return Fl_powers_pre(x, n, p, get_Fl_red(p));
-  else
-  {
-    long i;
-    GEN powers = cgetg(n + 2, t_VECSMALL);
-    powers[1] = 1;
-    for (i = 2; i <= n + 1; ++i)
-      powers[i] = Fl_mul(x, powers[i - 1], p);
-    return powers;
-  }
+  return Fl_powers_pre(x, n, p, get_Fl_red(p));
 }
 
 /**********************************************************************
@@ -2719,20 +2813,23 @@ Fp_invmBarrett(GEN p, long s)
   return mkvec2(Q,R);
 }
 
+/* a <= (N-1)^2, 2^(2s-2) <= N < 2^(2s). Return 0 <= r < N such that
+ * a = r (mod N) */
 static GEN
-Fp_rem_mBarrett(GEN a, GEN B, long s, GEN p)
+Fp_rem_mBarrett(GEN a, GEN B, long s, GEN N)
 {
   pari_sp av = avma;
-  GEN Q = gel(B, 1), R = gel(B, 2);
-  long sQ = expi(Q);
-  GEN A = addii(remi2n(a, 3*s), mulii(R,shifti(a, -3*s)));
-  GEN q = shifti(mulii(shifti(A, sQ-3*s), Q), -sQ);
-  GEN r = subii(A, mulii(q, p));
-  GEN sr= subii(r,p);     /* Now 0 <= r < 4*p */
+  GEN P = gel(B, 1), Q = gel(B, 2); /* 2^(3s) = P N + Q, 0 <= Q < N */
+  long t = expi(P)+1; /* 2^(t-1) <= P < 2^t */
+  GEN u = shifti(a, -3*s), v = remi2n(a, 3*s); /* a = 2^(3s)u + v */
+  GEN A = addii(v, mulii(Q,u)); /* 0 <= A < 2^(3s+1) */
+  GEN q = shifti(mulii(shifti(A, t-3*s), P), -t); /* A/N - 4 < q <= A/N */
+  GEN r = subii(A, mulii(q, N));
+  GEN sr= subii(r,N);     /* 0 <= r < 4*N */
   if (signe(sr)<0) return gerepileuptoint(av, r);
-  r=sr; sr = subii(r,p);  /* Now 0 <= r < 3*p */
+  r=sr; sr = subii(r,N);  /* 0 <= r < 3*N */
   if (signe(sr)<0) return gerepileuptoint(av, r);
-  r=sr; sr = subii(r,p);  /* Now 0 <= r < 2*p */
+  r=sr; sr = subii(r,N);  /* 0 <= r < 2*N */
   return gerepileuptoint(av, signe(sr)>=0 ? sr:r);
 }
 
@@ -2760,7 +2857,15 @@ static GEN
 _remii(muldata *D, GEN x) { return remii(x, D->N); }
 
 static GEN
-_remiibar(muldata *D, GEN x) { return Fp_rem_mBarrett(x, D->iM, D->s, D->N); }
+_remiibar(muldata *D, GEN x) {
+#if DEBUG
+  GEN r = Fp_rem_mBarrett(x, D->iM, D->s, D->N);
+  if (cmpii(r, D->N) >= 0) pari_err_BUG("Rp_rem_mBarrett");
+  return r;
+#else
+  return Fp_rem_mBarrett(x, D->iM, D->s, D->N);
+#endif
+}
 
 /* 2x mod N */
 static GEN
@@ -3401,7 +3506,7 @@ Fp_log(GEN a, GEN g, GEN ord, GEN p)
   GEN v = dlog_get_ordfa(ord);
   GEN F = gmael(v,2,1);
   long lF = lg(F)-1, lmax;
-  if (lF == 0) return gen_0;
+  if (lF == 0) return equali1(a)? gen_0: cgetg(1, t_VEC);
   lmax = expi(gel(F,lF));
   if (BPSW_psp(p) && Fp_log_use_index(lmax,expi(p)))
     v = mkvec2(gel(v,1),ZM_famat_limit(gel(v,2),int2n(27)));
@@ -3434,9 +3539,9 @@ znlog_rec(GEN h, GEN g, GEN N, GEN P, GEN E, GEN PHI)
   if (hp == gen_0 || gp == gen_0) return NULL;
   if (equaliu(p, 2))
   {
-    GEN N = int2n(e);
-    ogpe = Zp_order(gpe, gen_2, e, N);
-    a = Fp_log(hpe, gpe, ogpe, N);
+    GEN n = int2n(e);
+    ogpe = Zp_order(gpe, gen_2, e, n);
+    a = Fp_log(hpe, gpe, ogpe, n);
     if (typ(a) != t_INT) return NULL;
   }
   else
@@ -3670,7 +3775,7 @@ mulu_interval(ulong a, ulong b)
   }
   if (l == k) gel(x,lx++) = utoipos(k);
   setlg(x, lx);
-  return gerepileuptoint(av, divide_conquer_prod(x, mulii));
+  return gerepileuptoint(av, ZV_prod(x));
 }
 
 GEN
@@ -3738,7 +3843,7 @@ Qsfcont(GEN a, GEN b, GEN y, ulong k)
   GEN  z, c;
   ulong i, l, ly = lgefint(b);
 
-  /* times log(2) / log2( (1+sqrt(5)) / 2 )  */
+  /* times 1 / log2( (1+sqrt(5)) / 2 )  */
   l = (ulong)(3 + bit_accuracy_mul(ly, 1.44042009041256));
   if (k > 0 && k+1 > 0 && l > k+1) l = k+1; /* beware overflow */
   if (l > LGBITS) l = LGBITS;
@@ -4423,8 +4528,10 @@ quadregulator(GEN x, long prec)
 /**                                                                     **/
 /*************************************************************************/
 static int qfb_is_1(GEN f) { return equali1(gel(f,1)); }
-static GEN qfb_pow(void *E, GEN f, GEN n) { (void)E; return powgi(f,n); }
-static GEN qfi_comp(void *E, GEN f, GEN g) { (void)E; return qficomp(f,g); }
+static GEN qfb_pow(void *E, GEN f, GEN n)
+{ return E? nupow(f,n,(GEN)E): powgi(f,n); }
+static GEN qfi_comp(void *E, GEN f, GEN g)
+{ return E? nucomp(f,g,(GEN)E): qficomp(f,g); }
 static ulong qfb_hash(GEN x)
 {
   GEN a = gel(x,1);
@@ -4450,9 +4557,9 @@ qfbclassno0(GEN x,long flag)
 
 /* f^h = 1, return order(f). Set *pfao to its factorization */
 static GEN
-find_order(GEN f, GEN h, GEN *pfao)
+find_order(void *E, GEN f, GEN h, GEN *pfao)
 {
-  GEN v = gen_factored_order(f, h, NULL, &qfi_group);
+  GEN v = gen_factored_order(f, h, E, &qfi_group);
   *pfao = gel(v,2); return gel(v,1);
 }
 
@@ -4622,23 +4729,23 @@ get_forms(GEN D, GEN *pL)
 
 /* h ~ #G, return o = order of f, set fao = its factorization */
 static  GEN
-Shanks_order(GEN f, GEN h, GEN *pfao)
+Shanks_order(void *E, GEN f, GEN h, GEN *pfao)
 {
   long s = minss(itos(sqrti(h)), 10000);
-  GEN T = gen_Shanks_init(f, s, NULL, &qfi_group);
-  GEN v = gen_Shanks(T, ginv(f), ULONG_MAX, NULL, &qfi_group);
-  return find_order(f, addiu(v,1), pfao);
+  GEN T = gen_Shanks_init(f, s, E, &qfi_group);
+  GEN v = gen_Shanks(T, ginv(f), ULONG_MAX, E, &qfi_group);
+  return find_order(E, f, addiu(v,1), pfao);
 }
 
 /* if g = 1 in  G/<f> ? */
 static int
-equal1(GEN T, ulong N, GEN g)
-{ return !!gen_Shanks(T, g, N, NULL, &qfi_group); }
+equal1(void *E, GEN T, ulong N, GEN g)
+{ return !!gen_Shanks(T, g, N, E, &qfi_group); }
 
 /* Order of 'a' in G/<f>, T = gen_Shanks_init(f,n), order(f) < n*N
  * FIXME: should be gen_order, but equal1 has the wrong prototype */
 static GEN
-relative_order(GEN a, GEN o, ulong N,  GEN T)
+relative_order(void *E, GEN a, GEN o, ulong N,  GEN T)
 {
   pari_sp av = avma;
   long i, l;
@@ -4659,12 +4766,12 @@ relative_order(GEN a, GEN o, ulong N,  GEN T)
       t = diviiexact(o, powiu(p,e));
       y = powgi(a, t);
     }
-    if (equal1(T,N,y)) o = t;
+    if (equal1(E, T,N,y)) o = t;
     else {
       for (j = 1; j < e; j++)
       {
         y = powgi(y, p);
-        if (equal1(T,N,y)) break;
+        if (equal1(E, T,N,y)) break;
       }
       if (j < e) {
         if (j > 1) p = powiu(p, j);
@@ -4685,6 +4792,7 @@ classno(GEN x)
   pari_sp av = avma;
   long r2, k, s, i, l;
   GEN forms, hin, Hf, D, g1, d1, d2, q, L, fad1, order_bound;
+  void *E;
 
   if (signe(x) >= 0) return classno2(x);
 
@@ -4699,8 +4807,9 @@ classno(GEN x)
 
   l = lg(forms);
   order_bound = const_vec(l-1, NULL);
+  E = expi(D) > 60? (void*)sqrtnint(shifti(absi(D),-2),4): NULL;
   g1 = gel(forms,1);
-  gel(order_bound,1) = d1 = Shanks_order(g1, hin, &fad1);
+  gel(order_bound,1) = d1 = Shanks_order(E, g1, hin, &fad1);
   q = diviiround(hin, d1); /* approximate order of G/<g1> */
   d2 = NULL; /* not computed yet */
   if (is_pm1(q)) goto END;
@@ -4710,10 +4819,10 @@ classno(GEN x)
     fd = powgi(f, d1); if (is_pm1(gel(fd,1))) continue;
     F = powgi(fd, q);
     a = gel(F,1);
-    o = is_pm1(a)? find_order(fd, q, &fao): Shanks_order(fd, q, &fao);
+    o = is_pm1(a)? find_order(E, fd, q, &fao): Shanks_order(E, fd, q, &fao);
     /* f^(d1 q) = 1 */
     fao = merge_factor(fad1,fao, (void*)&cmpii, &cmp_nodata);
-    o = find_order(f, fao, &fao);
+    o = find_order(E, f, fao, &fao);
     gel(order_bound,i) = o;
     /* o = order of f, fao = factor(o) */
     update_g1(&g1,&d1,&fad1, f,o,fao);
@@ -4724,18 +4833,18 @@ classno(GEN x)
   if (expi(q) > 3)
   { /* q large: compute d2, 2nd elt divisor */
     ulong N, n = 2*itou(sqrti(d1));
-    GEN D = d1, T = gen_Shanks_init(g1, n, NULL, &qfi_group);
+    GEN D = d1, T = gen_Shanks_init(g1, n, E, &qfi_group);
     d2 = gen_1;
     N = itou( gceil(gdivgs(d1,n)) ); /* order(g1) <= n*N */
     for (i = 1; i < l; i++)
     {
       GEN d, f = gel(forms,i), B = gel(order_bound,i);
-      if (!B) B = find_order(f, fad1, /*junk*/&d);
+      if (!B) B = find_order(E, f, fad1, /*junk*/&d);
       f = powgi(f,d2);
-      if (equal1(T,N,f)) continue;
+      if (equal1(E, T,N,f)) continue;
       B = gdiv(B,d2); if (typ(B) == t_FRAC) B = gel(B,1);
       /* f^B = 1 */
-      d = relative_order(f, B, N,T);
+      d = relative_order(E, f, B, N,T);
       d2= mulii(d,d2);
       D = mulii(d1,d2);
       q = diviiround(hin,D);

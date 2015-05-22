@@ -195,7 +195,36 @@ A typical low-level construct:
   l = L? lg(L): 1;
   for (i = 1; i < l; i++) output( gel(L, i) );
   for (i = 1; i < l; i++) gel(L, i) = gclone( ... );
-@eprog\noindent
+@eprog
+
+\subsec{Maps as Lists}
+
+GP's maps are implemented on top of \typ{LIST}s so as to benefit from
+their peculiar memory models. Lists thus come in two subtypes: \typ{LIST\_RAW}
+(actual lists) and \typ{LIST\_MAP} (a map).
+
+\fun{GEN}{listcreate_typ}{long t} create a list of subtype $t$. Plain
+\kbd{listcreate} is an alias for
+\bprog
+  listcreate_typ(t_LIST_RAW);
+@eprog
+
+\fun{long}{list_typ}{GEN L} return the list subtype, either \typ{LIST\_RAW} or
+\typ{LIST\_MAP}.
+
+\fun{void}{listpop}{GEN L, long index} as \kbd{listpop0},
+assuming that $L$ is a \typ{LIST\_RAW}.
+
+\fun{GEN}{listput}{GEN list, GEN object, long index} as \kbd{listput0},
+assuming that $L$ is a \typ{LIST\_RAW}.
+
+\fun{GEN}{mapdomain}{GEN T} vector of keys of the map $T$.
+
+\fun{GEN}{mapdomain_shallow}{GEN T} shallow version of \kbd{mapdomain}.
+
+\fun{GEN}{maptomat}{GEN T} convert a map to a factorization matrix.
+
+\fun{GEN}{maptomat_shallow}{GEN T} shallow version of \kbd{maptomat}.
 
 \section{Protection of non-interruptible code}
 
@@ -254,8 +283,8 @@ available to handle group elements:
     {
       GEN (*mul)(void*, GEN, GEN);
       GEN (*pow)(void*, GEN, GEN);
-      ulong (*hash)(GEN);
       GEN (*rand)(void*);
+      ulong (*hash)(GEN);
       int (*equal)(GEN, GEN);
       int (*equal1)(GEN);
       GEN (*easylog)(void *E, GEN, GEN, GEN);
@@ -265,9 +294,9 @@ available to handle group elements:
 
 \kbd{pow(E,x,n)} returns $x^n$ ($n$ integer, possibly negative or zero).
 
-\kbd{hash(x)} returns a hash value for $x$ (\kbd{hash\_GEN} is suitable for this field).
-
 \kbd{rand(E)} returns a random element in the group.
+
+\kbd{hash(x)} returns a hash value for $x$ (\kbd{hash\_GEN} is suitable for this field).
 
 \kbd{equal(x,y)} returns one if $x=y$ and zero otherwise.
 
@@ -626,6 +655,9 @@ as \kbd{Flxq\_sqrtn}
 \fun{GEN}{Fl2_norm_pre}{GEN x, GEN n, ulong D, ulong p, ulong pi} return the
 norm of $x$.
 
+\fun{GEN}{Flx_Fl2_eval_pre}{GEN P, GEN x, ulong D, ulong p, ulong pi}
+return $P(x)$.
+
 \section{Public functions useless outside of GP context}
 
 These functions implement GP functionality for which the C language or
@@ -748,19 +780,21 @@ value.
 
 \fun{long}{get_localprec}{void} returns the current local precision.
 
-\subsec{Functions related to the GP parser}
+\subsec{Functions related to the GP evaluator}
 
-The GP parser can generate an opcode saving the current lexical context
-(pairs made of a lexical variable name and its value) in a \kbd{GEN}, called
-\kbd{pack} in the sequel. These can be used from debuggers (e.g. gp's break
-loop) to track values of lexical variable. Indeed, lexical variables have
-disappeared from the compiled code, only their values in a given scope exist
-(on some value stack). Provided the parser generated the proper opcode, there
-remains a trace of lexical variable names and everything can still be
-unravelled.
+The prototype code \kbd{C} instructs the GP compiler to save the current
+lexical context (pairs made of a lexical variable name and its value)
+in a \kbd{GEN}, called \kbd{pack} in the sequel. This \kbd{pack} can be used
+to evaluate expressions in the corresponding lexical context, providing it is
+current.
 
 \fun{GEN}{localvars_read_str}{const char *s, GEN pack} evaluate the string $s$
-in the lexical context given by \kbd{pack}.  Used by \tet{geval_gp} in GP.
+in the lexical context given by \kbd{pack}.  Used by \tet{geval_gp} in GP
+to implement the behaviour below:
+\bprog
+? my(z=3);eval("z=z^2");z
+%1 = 9
+@eprog
 
 \fun{long}{localvars_find}{GEN pack, entree *ep} does \kbd{pack} contain
 a pair whose variable corresponds to \kbd{ep}? If so, where is the
@@ -863,23 +897,23 @@ it is actually valid. This is used by GP2C -C.
 
 PARI provides an abstraction for doing parallel computations.
 
-\fun{void}{mt_queue_start}{struct pari\_mt *pt, GEN worker} Let \kbd{worker}
+\fun{void}{mt_queue_start}{struct pari_mt *pt, GEN worker} Let \kbd{worker}
 be a \typ{CLOSURE} object of arity $1$.  Initialize the structure \kbd{pt}
 to evaluate \kbd{worker} in parallel.
 
-\fun{void}{mt_queue_submit}{struct pari\_mt *pt, long taskid, GEN task} Submit
+\fun{void}{mt_queue_submit}{struct pari_mt *pt, long taskid, GEN task} Submit
 \kbd{task} to be evaluated by \kbd{worker}, or \kbd{NULL} if no further task
 is left to be submitted. The value \kbd{taskid} is user-specified and allows
 to later match up results and submitted tasks.
 
-\fun{GEN}{mt_queue_get}{struct pari\_mt *pt, long *taskid, long *pending}
+\fun{GEN}{mt_queue_get}{struct pari_mt *pt, long *taskid, long *pending}
 Return the result of the evaluation by \kbd{worker} of one of the previously
 submitted tasks. Set \kbd{pending} to the number of remaining pending tasks.
 Set \kbd{taskid} to the value associate to this task by
 \kbd{mt\_queue\_submit}.  Returns \kbd{NULL} if more tasks need to be
 submitted.
 
-\fun{void}{mt_queue_end}{struct pari\_mt *pt} End the parallel execution.
+\fun{void}{mt_queue_end}{struct pari_mt *pt} End the parallel execution.
 
 Calls to \tet{mt_queue_submit} and \tet{mt_queue_get} must alternate: each
 call to \tet{mt_queue_submit} must be followed by a call to

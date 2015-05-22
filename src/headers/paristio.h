@@ -108,6 +108,7 @@ typedef struct entree {
   const char *help;
   void *pvalue;
   long arity;
+  ulong hash;
   struct entree *next;
 } entree;
 
@@ -116,7 +117,7 @@ struct pari_parsestate
   long node;
   int once;
   long discarded;
-  const char *lex_start, *unused_chars;
+  const char *lex_start;
   GEN lasterror;
 };
 
@@ -140,10 +141,16 @@ struct pari_evalstate
   struct pari_compilestate comp;
 };
 
+struct pari_varstate
+{
+  long nvar, max_avail, min_priority, max_priority;
+};
+
 struct gp_context
 {
   long listloc;
   long prettyp;
+  struct pari_varstate var;
   struct pari_evalstate eval;
   struct pari_parsestate parse;
   pariFILE *file;

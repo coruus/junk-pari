@@ -20,8 +20,10 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 /**                                                                **/
 /********************************************************************/
 /* In all the forthcoming remarks, "paper" designs the paper "Thue Equations of
- * High Degree", by Yu. Bilu and G. Hanrot, J. Number Theory (1996). The numbering
- * of the constants corresponds to Hanrot's thesis rather than to the paper */
+ * High Degree", by Yu. Bilu and G. Hanrot, J. Number Theory (1996). The
+ * numbering of the constants corresponds to Hanrot's thesis rather than to the
+ * paper. See also
+ * "Solving Thue equations without the full unit group", Math. Comp. (2000) */
 
 /* Check whether tnf is a valid structure */
 static int
@@ -40,13 +42,6 @@ checktnf(GEN tnf)
        && typ(gel(tnf,5)) == t_MAT
        && typ(gel(tnf,6)) == t_MAT
        && typ(gel(tnf,7)) == t_VEC);
-}
-
-static GEN
-distoZ(GEN z)
-{
-  GEN t = gfrac(z);
-  return gmin(t, gsubsg(1,t));
 }
 
 /* Compensates rounding errors for computation/display of the constants.
@@ -82,10 +77,15 @@ tnf_get_roots(GEN poly, long prec, long S, long T)
 static GEN
 LogHeight(GEN x, long prec)
 {
+  pari_sp av = avma;
   long i, n = lg(x)-1;
   GEN LH = gen_1;
-  for (i=1; i<=n; i++) LH = gmul(LH, gmax(gen_1, gabs(gel(x,i), prec)));
-  return gdivgs(glog(LH,prec), n);
+  for (i=1; i<=n; i++)
+  {
+    GEN t = gabs(gel(x,i), prec);
+    if (gcmpgs(t,1) > 0) LH = gmul(LH, t);
+  }
+  return gerepileupto(av, gdivgs(glog(LH,prec), n));
 }
 
 /* |x|^(1/n), x t_INT */
@@ -128,9 +128,6 @@ Conj_LH(GEN v, GEN *H, GEN r, long prec)
   return M;
 }
 
-static GEN abslog(GEN x, long prec) { return gabs(glog(x,prec), prec); }
-static GEN logabs(GEN x, long prec) { return glog(gabs(x,prec), prec); }
-
 /* Computation of M, its inverse A and precision check (see paper) */
 static GEN
 T_A_Matrices(GEN MatFU, long r, GEN *eps5, long prec)
@@ -138,15 +135,14 @@ T_A_Matrices(GEN MatFU, long r, GEN *eps5, long prec)
   GEN A, p1, m1, IntM, nia, eps3, eps2;
   long e = prec2nbits(prec);
 
-  m1 = rowslice(vecslice(MatFU, 1,r), 1,r); /* minor order r */
-  m1 = logabs(m1, 3);
-
+  m1 = matslice(MatFU, 1,r, 1,r); /* minor order r */
+  m1 = glog(gabs(m1, prec), prec); /* HIGH accuracy */
   A = RgM_inv(m1); if (!A) pari_err_PREC("thue");
   IntM = RgM_Rg_add(RgM_mul(A,m1), gen_m1);
+  IntM = gabs(IntM, 0);
 
-  eps2 = gadd(vecmax(gabs(IntM, 3)), real2n(-e, LOWDEFAULTPREC)); /* t_REAL */
-  nia = vecmax(gabs(A, 3));
-  if (typ(nia) != t_REAL) nia = gtofp(nia, LOWDEFAULTPREC);
+  eps2 = gadd(vecmax(IntM), real2n(-e, LOWDEFAULTPREC)); /* t_REAL */
+  nia = vecmax(gabs(A, 0));
 
   /* Check for the precision in matrix inversion. See paper, Lemma 2.4.2. */
   p1 = addrr(mulsr(r, gmul2n(nia, e)), eps2); /* t_REAL */
@@ -161,6 +157,39 @@ T_A_Matrices(GEN MatFU, long r, GEN *eps5, long prec)
 
   if (DEBUGLEVEL>1) err_printf("epsilon_3 -> %Ps\n",eps3);
   *eps5 = mulur(r, eps3); return A;
+}
+
+/* find a few large primes such that p Z_K = P1 P2 P3 Q, whith f(Pi/p) = 1
+ * From x - \alpha y = \prod u_i^b_i we will deduce 3 equations in F_p
+ * in check_prinfo. Eliminating x,y we get a stringent condition on (b_i). */
+static GEN
+get_prime_info(GEN bnf)
+{
+  long n = 1, e = gexpo(bnf_get_reg(bnf)), nbp = e < 20? 1: 2;
+  GEN L = cgetg(nbp+1, t_VEC), nf = checknf(bnf), fu = bnf_get_fu(bnf);
+  GEN X = pol_x(nf_get_varn(nf));
+  ulong p;
+  for(p = 2147483659UL; n <= nbp; p = unextprime(p+1))
+  {
+    GEN PR, A, U, LP = idealprimedec_limit_f(bnf, utoipos(p), 1);
+    long i;
+    if (lg(LP) < 4) continue;
+    A = cgetg(5, t_VECSMALL);
+    U = cgetg(4, t_VEC);
+    PR = cgetg(4, t_VEC);
+    for (i = 1; i <= 3; i++)
+    {
+      GEN modpr = zkmodprinit(nf, gel(LP,i));
+      GEN a = nf_to_Fq(nf, X, modpr);
+      GEN u = nfV_to_FqV(fu, nf, modpr);
+      A[i] = itou(a);
+      gel(U,i) = ZV_to_Flv(u,p);
+      gel(PR,i) = modpr;
+    }
+    A[4] = p;
+    gel(L,n++) = mkvec3(A,U,PR);
+  }
+  return L;
 }
 
 /* Performs basic computations concerning the equation.
@@ -181,7 +210,7 @@ inithue(GEN P, GEN bnf, long flag, long prec)
 
   if (!bnf)
   {
-    bnf = Buchall(P, nf_FORCE, DEFAULTPREC);
+    bnf = Buchall(P, nf_FORCE, maxss(prec, DEFAULTPREC));
     if (flag) (void)bnfcertify(bnf);
     else
       Ind = floorr(mulru(bnf_get_reg(bnf), 5));
@@ -237,7 +266,7 @@ inithue(GEN P, GEN bnf, long flag, long prec)
     err_printf("c1 = %Ps\nc2 = %Ps\nIndice <= %Ps\n", c1, c2, Ind);
 
   ALH = gmul2n(ALH, 1);
-  tnf = cgetg(8,t_VEC); csts = cgetg(8,t_VEC);
+  tnf = cgetg(8,t_VEC); csts = cgetg(9,t_VEC);
   gel(tnf,1) = P;
   gel(tnf,2) = bnf;
   gel(tnf,3) = ro;
@@ -248,58 +277,51 @@ inithue(GEN P, GEN bnf, long flag, long prec)
   gel(csts,1) = c1; gel(csts,2) = c2;   gel(csts,3) = LogHeight(ro, prec);
   gel(csts,4) = x0; gel(csts,5) = eps5; gel(csts,6) = utoipos(prec);
   gel(csts,7) = Ind;
+  gel(csts,8) = get_prime_info(bnf);
   return tnf;
 }
 
 typedef struct {
-  GEN c10, c11, c13, c15, bak, NE, ALH, Ind, hal, MatFU, ro, Hmu;
-  GEN delta, lambda, inverrdelta;
+  GEN c10, c11, c13, c15, c91, bak, NE, Ind, hal, MatFU, divro, Hmu;
+  GEN delta, lambda, inverrdelta, ro, Pi, Pi2;
   long r, iroot, deg;
 } baker_s;
+
+static void
+other_roots(long iroot, long *i1, long *i2)
+{
+  switch (iroot) {
+    case 1: *i1=2; *i2=3; break;
+    case 2: *i1=1; *i2=3; break;
+   default: *i1=1; *i2=2; break;
+  }
+}
+/* low precision */
+static GEN abslog(GEN x) { return gabs(glog(gtofp(x,DEFAULTPREC),0), 0); }
 
 /* Compute Baker's bound c9 and B_0, the bound for the b_i's. See Thm 2.3.1 */
 static GEN
 Baker(baker_s *BS)
 {
-  const long prec = DEFAULTPREC;
-  GEN tmp, B0, hb0, c9 = gen_1, ro = BS->ro, ro0 = gel(ro,BS->iroot);
-  long k, i1, i2, r = BS->r;
+  GEN tmp, B0, hb0, c9, Indc11;
+  long i1, i2;
 
-  switch (BS->iroot) {
-    case 1: i1=2; i2=3; break;
-    case 2: i1=1; i2=3; break;
-   default: i1=1; i2=2; break;
-  }
-
-  /* Compute h_1....h_r */
-  for (k=1; k<=r; k++)
-  {
-    tmp = gdiv(gcoeff(BS->MatFU,i1,k), gcoeff(BS->MatFU,i2,k));
-    tmp = gmax(gen_1, abslog(tmp,prec));
-    c9 = gmul(c9, gmax(gel(BS->ALH,k), gdiv(tmp, BS->bak)));
-  }
-
+  other_roots(BS->iroot, &i1,&i2);
   /* Compute a bound for the h_0 */
-  hb0 = gadd(gmul2n(BS->hal,2), gmul2n(gadd(BS->Hmu,mplog2(prec)), 1));
-  tmp = gdiv(gmul(gsub(ro0, gel(ro,i2)), gel(BS->NE,i1)),
-             gmul(gsub(ro0, gel(ro,i1)), gel(BS->NE,i2)));
-  tmp = gmax(gen_1, abslog(tmp, prec));
+  hb0 = gadd(gmul2n(BS->hal,2), gmul2n(gadd(BS->Hmu,mplog2(DEFAULTPREC)), 1));
+  tmp = gmul(BS->divro, gdiv(gel(BS->NE,i1), gel(BS->NE,i2)));
+  tmp = gmax(gen_1, abslog(tmp));
   hb0 = gmax(hb0, gdiv(tmp, BS->bak));
-  c9 = gmul(c9,hb0);
-  /* Multiply c9 by the "constant" factor */
-  c9 = gmul(c9, gmul(mulri(mulur(18,mppi(prec)), int2n(5*(4+r))),
-                     gmul(gmul(mpfact(r+3), powiu(muliu(BS->bak,r+2), r+3)),
-                          glog(muliu(BS->bak,2*(r+2)),prec))));
+  c9 = gmul(BS->c91,hb0);
   c9 = gprec_w(myround(c9, 1), DEFAULTPREC);
+  Indc11 = rtor(mulir(BS->Ind,BS->c11), DEFAULTPREC);
   /* Compute B0 according to Lemma 2.3.3 */
   B0 = mulir(shifti(BS->Ind,1),
              divrr(addrr(mulrr(c9,mplog(divrr(mulir(BS->Ind, c9),BS->c10))),
-                         mplog(mulir(BS->Ind, BS->c11))),
-                   BS->c10));
+                         mplog(Indc11)), BS->c10));
   B0 = gmax(B0, dbltor(2.71828183));
   B0 = gmax(B0, mulrr(divir(BS->Ind, BS->c10),
-                      mplog(divrr(mulir(BS->Ind, BS->c11),
-                                  Pi2n(1, prec)))));
+                      mplog(divrr(Indc11, BS->Pi2))));
 
   if (DEBUGLEVEL>1) {
     err_printf("  B0  = %Ps\n",B0);
@@ -371,8 +393,10 @@ LLL_1stPass(GEN *pB0, GEN kappa, baker_s *BS, GEN *pBx)
   else
     triv = addir(sqri(BS->Ind), sqrr(B0));
 
-  gcoeff(lllmat, 3, 1) = roundr(negr(mulir(C, BS->lambda)));
-  gcoeff(lllmat, 3, 2) = roundr(negr(mulir(C, BS->delta)));
+  gcoeff(lllmat, 3, 1) = grndtoi(negr(mulir(C, BS->lambda)), &e);
+  if (e >= 0) return -1;
+  gcoeff(lllmat, 3, 2) = grndtoi(negr(mulir(C, BS->delta)), &e);
+  if (e >= 0) return -1;
   gcoeff(lllmat, 3, 3) = C;
   lllmat = ZM_lll(lllmat, 0.99, LLL_IM|LLL_INPLACE);
 
@@ -429,23 +453,140 @@ CheckSol(GEN *pS, GEN z1, GEN z2, GEN P, GEN rhs, GEN ro)
   if (e > 0) return 0;
   if (e <= -13)
   { /* y != 0 and rhs != 0; check whether P(x,y) = rhs or P(-x,-y) = rhs */
-    GEN z = poleval(RgX_rescale(P,y),x);
+    GEN z = poleval(ZX_rescale(P,y),x);
     if (absi_equal(z, rhs)) add_pm(pS, x,y, z, degpol(P), rhs);
   }
   return 1;
 }
 
-/* find q1,q2,q3 st q1 + b q2 + c q3 ~ 0 */
+static const long EXPO1 = 7;
+static int
+round_to_b(GEN v, long B, long b, GEN Delta2, long i1, GEN L)
+{
+  long i, l = lg(v);
+  if (!b)
+  {
+    for (i = 1; i < l; i++)
+    {
+      long c;
+      if (i == i1)
+        c = 0;
+      else
+      {
+        GEN d = gneg(gel(L,i));
+        long e;
+        d = grndtoi(d,&e);
+        if (e > -EXPO1 || is_bigint(d)) return 0;
+        c = itos(d); if (labs(c) > B) return 0;
+      }
+      v[i] = c;
+    }
+  }
+  else
+  {
+    for (i = 1; i < l; i++)
+    {
+      long c;
+      if (i == i1)
+        c = b;
+      else
+      {
+        GEN d = gsub(gmulgs(gel(Delta2,i), b), gel(L,i));
+        long e;
+        d = grndtoi(d,&e);
+        if (e > -EXPO1 || is_bigint(d)) return 0;
+        c = itos(d); if (labs(c) > B) return 0;
+      }
+      v[i] = c;
+    }
+  }
+  return 1;
+}
+
+/* mu \prod U[i]^b[i] */
+static ulong
+Fl_factorback(ulong mu, GEN U, GEN b, ulong p)
+{
+  long i, l = lg(U);
+  ulong r = mu;
+  for (i = 1; i < l; i++)
+  {
+    long c = b[i];
+    ulong u = U[i];
+    if (!c) continue;
+    if (c < 0) { u = Fl_inv(u,p); c = -c; }
+    r = Fl_mul(r, Fl_powu(u,c,p), p);
+  }
+  return r;
+}
+
+/* x - alpha y = \pm mu \prod \mu_i^{b_i}. Reduce mod 3 distinct primes of
+ * degree 1 above the same p, and eliminate x,y => drastic conditions on b_i */
+static int
+check_pr(GEN bi, GEN Lmu, GEN L)
+{
+  GEN A = gel(L,1), U = gel(L,2);
+  ulong a = A[1], b = A[2], c = A[3], p = A[4];
+  ulong r = Fl_mul(Fl_sub(c,b,p), Fl_factorback(Lmu[1],gel(U,1),bi, p), p);
+  ulong s = Fl_mul(Fl_sub(a,c,p), Fl_factorback(Lmu[2],gel(U,2),bi, p), p);
+  ulong t = Fl_mul(Fl_sub(b,a,p), Fl_factorback(Lmu[3],gel(U,3),bi, p), p);
+  return Fl_add(Fl_add(r,s,p),t,p) == 0;
+}
+static int
+check_prinfo(GEN b, GEN Lmu, GEN prinfo)
+{
+  long i;
+  for (i = 1; i < lg(prinfo); i++)
+    if (!check_pr(b, gel(Lmu,i), gel(prinfo,i))) return 0;
+  return 1;
+}
+/* For each possible value of b_i1, compute the b_i's
+* and 2 conjugates of z = x - alpha y. Then check. */
+static int
+TrySol(GEN *pS, GEN B0, long i1, GEN Delta2, GEN Lambda, GEN ro,
+       GEN Lmu, GEN NE, GEN MatFU, GEN prinfo, GEN P, GEN rhs)
+{
+  long bi1, i, B = itos(gceil(B0)), l = lg(Delta2);
+  GEN b = cgetg(l,t_VECSMALL), L = cgetg(l,t_VEC);
+
+  for (i = 1; i < l; i++)
+  {
+    if (i == i1)
+      gel(L,i) = gen_0;
+    else
+    {
+      GEN delta = gel(Delta2,i);
+      gel(L, i) = gsub(gmul(delta,gel(Lambda,i1)), gel(Lambda,i));
+    }
+  }
+  for (bi1 = -B; bi1 <= B; bi1++)
+  {
+    GEN z1, z2;
+    if (!round_to_b(b, B, bi1, Delta2, i1, L)) continue;
+    if (!check_prinfo(b, Lmu, prinfo)) continue;
+    z1 = gel(NE,1);
+    z2 = gel(NE,2);
+    for (i = 1; i < l; i++)
+    {
+      z1 = gmul(z1, gpowgs(gcoeff(MatFU,1,i), b[i]));
+      z2 = gmul(z2, gpowgs(gcoeff(MatFU,2,i), b[i]));
+    }
+    if (!CheckSol(pS, z1,z2,P,rhs,ro)) return 0;
+  }
+  return 1;
+}
+
+/* find q1,q2,q3 st q1 b + q2 c + q3 ~ 0 */
 static GEN
 GuessQi(GEN b, GEN c, GEN *eps)
 {
-  const long shift = 33;
-  GEN Q, Lat, C = int2n(shift);
+  const long shift = 65;
+  GEN Q, Lat;
 
   Lat = matid(3);
   gcoeff(Lat,3,1) = ground(gmul2n(b, shift));
   gcoeff(Lat,3,2) = ground(gmul2n(c, shift));
-  gcoeff(Lat,3,3) = C;
+  gcoeff(Lat,3,3) = int2n(shift);
 
   Q = gel(lllint(Lat),1);
   if (gequal0(gel(Q,2))) return NULL; /* FAIL */
@@ -460,25 +601,25 @@ myfloor(GEN x) { return expo(x) > 30 ? ceil_safe(x): floorr(x); }
 
 /* Check for not-so-small solutions. Return a t_REAL or NULL */
 static GEN
-MiddleSols(GEN *pS, GEN bound, GEN roo, GEN poly, GEN rhs, long s, GEN c1)
+MiddleSols(GEN *pS, GEN bound, GEN roo, GEN P, GEN rhs, long s, GEN c1)
 {
   long j, k, nmax, d;
   GEN bndcf;
 
   if (expo(bound) < 0) return bound;
-  d = degpol(poly);
+  d = degpol(P);
   bndcf = sqrtnr(shiftr(c1,1), d - 2);
   if (cmprr(bound, bndcf) < 0) return bound;
-  /* divide by log((1+sqrt(5))/2)
+  /* divide by log2((1+sqrt(5))/2)
    * 1 + ==> ceil
    * 2 + ==> continued fraction is normalized if last entry is 1
    * 3 + ==> start at a0, not a1 */
-  nmax = 3 + (long)(gtodouble(logr_abs(bound)) / 0.4812118250596);
+  nmax = 3 + (long)(dbllog2(bound) * 1.44042009041256);
   bound = myfloor(bound);
 
   for (k = 1; k <= s; k++)
   {
-    GEN t = contfrac0(real_i(gel(roo,k)), NULL, nmax);
+    GEN ro = real_i(gel(roo,k)), t = gboundcf(ro, nmax);
     GEN pm1, qm1, p0, q0;
 
     pm1 = gen_0; p0 = gen_1;
@@ -487,14 +628,15 @@ MiddleSols(GEN *pS, GEN bound, GEN roo, GEN poly, GEN rhs, long s, GEN c1)
     for (j = 1; j < lg(t); j++)
     {
       GEN p, q, z, Q, R;
+      pari_sp av;
       p = addii(mulii(p0, gel(t,j)), pm1); pm1 = p0; p0 = p;
       q = addii(mulii(q0, gel(t,j)), qm1); qm1 = q0; q0 = q;
       if (cmpii(q, bound) > 0) break;
       if (DEBUGLEVEL >= 2) err_printf("Checking (+/- %Ps, +/- %Ps)\n",p, q);
-
-      z = poleval(ZX_rescale(poly,q), p); /* = P(p/q) q^dep(P) */
+      av = avma;
+      z = poleval(ZX_rescale(P,q), p); /* = P(p/q) q^dep(P) */
       Q = dvmdii(rhs, z, &R);
-      if (R != gen_0) continue;
+      if (R != gen_0) { avma = av; continue; }
       setabssign(Q);
       if (Z_ispowerall(Q, d, &Q))
       {
@@ -502,7 +644,17 @@ MiddleSols(GEN *pS, GEN bound, GEN roo, GEN poly, GEN rhs, long s, GEN c1)
         add_pm(pS, p, q, z, d, rhs);
       }
     }
-    if (j == lg(t)) pari_err_BUG("Short continued fraction in thue");
+    if (j == lg(t))
+    {
+      long prec;
+      if (j > nmax) pari_err_BUG("thue [short continued fraction]");
+      /* the theoretical value is bit_prec = gexpo(ro)+1+log2(bound) */
+      prec = precdbl(precision(ro));
+      if (DEBUGLEVEL>1) pari_warn(warnprec,"thue",prec);
+      roo = realroots(P, NULL, prec);
+      if (lg(roo)-1 != s) pari_err_BUG("thue [realroots]");
+      k--;
+    }
   }
   return bndcf;
 }
@@ -699,50 +851,59 @@ thueinit(GEN pol, long flag, long prec)
   return gerepilecopy(av,tnf);
 }
 
-static void
-init_get_B(long i1, long i2, GEN Delta, GEN Lambda, GEN eps5, baker_s *BS,
-           long prec)
+/* arg(t^2) / 2Pi; arg(t^2) = arg(t/conj(t)) */
+static GEN
+argsqr(GEN t, GEN Pi)
 {
-  GEN delta, lambda, inverrdelta;
-  if (BS->r > 1)
+  GEN v, u = divrr(garg(t,0), Pi); /* in -1 < u <= 1 */
+  /* reduce mod Z to -1/2 < u <= 1/2 */
+  if (signe(u) > 0)
   {
-    delta = divrr(gel(Delta,i2),gel(Delta,i1));
-    lambda = gdiv(gsub(gmul(gel(Delta,i2),gel(Lambda,i1)),
-                       gmul(gel(Delta,i1),gel(Lambda,i2))),
-                  gel(Delta,i1));
-    inverrdelta = divrr(subrr(mpabs(gel(Delta,i1)),eps5),
-                        mulrr(addsr(1,delta),eps5));
+    v = subrs(u,1); /* ]-1,0] */
+    if (absr_cmp(v,u) < 0) u = v;
   }
   else
-  { /* r == 1, single fundamental unit (i1 = s = t = 1) */
-    GEN p1, Pi2 = Pi2n(1, prec);
-    GEN fu = gel(BS->MatFU,1), ro = BS->ro;
-
-    p1 = gdiv(gel(fu,2), gel(fu,3));
-    delta = divrr(garg(p1,prec), Pi2);
-
-    p1 = gmul(gdiv(gsub(gel(ro,1), gel(ro,2)),
-                   gsub(gel(ro,1), gel(ro,3))),
-              gdiv(gel(BS->NE,3), gel(BS->NE,2)));
-    lambda = divrr(garg(p1,prec), Pi2);
-
-    inverrdelta = shiftr(gabs(gel(fu,2),prec), prec2nbits(prec)-1);
+  {
+    v = addrs(u,1);/* ]0,1] */
+    if (absr_cmp(v,u) <= 0) u = v;
   }
-  if (DEBUGLEVEL>1) err_printf("  inverrdelta = %Ps\n",inverrdelta);
+  return u;
+}
+/* i1 != i2 */
+static void
+init_get_B(long i1, long i2, GEN Delta2, GEN Lambda, GEN Deps5, baker_s *BS,
+           long prec)
+{
+  GEN delta, lambda;
+  if (BS->r > 1)
+  {
+    delta = gel(Delta2,i2);
+    lambda = gsub(gmul(delta,gel(Lambda,i1)), gel(Lambda,i2));
+    if (Deps5) BS->inverrdelta = divrr(Deps5, addsr(1,delta));
+  }
+  else
+  { /* r == 1: i1 = s = t = 1; i2 = 2 */
+    GEN fu = gel(BS->MatFU,1), ro = BS->ro, t;
+
+    t = gel(fu,2);
+    delta = argsqr(t, BS->Pi);
+    if (Deps5) BS->inverrdelta = shiftr(gabs(t,prec), prec2nbits(prec)-1);
+
+    t = gmul(gsub(gel(ro,1), gel(ro,2)), gel(BS->NE,3));
+    lambda = argsqr(t, BS->Pi);
+  }
   BS->delta = delta;
   BS->lambda = lambda;
-  BS->inverrdelta = inverrdelta;
 }
 
 static GEN
-get_B0(long i1, GEN Delta, GEN Lambda, GEN eps5, long prec, baker_s *BS)
+get_B0(long i1, GEN Delta2, GEN Lambda, GEN Deps5, long prec, baker_s *BS)
 {
   GEN B0 = Baker(BS);
   long step = 0, i2 = (i1 == 1)? 2: 1;
   for(;;) /* i2 from 1 to r unless r = 1 [then i2 = 2] */
   {
-    init_get_B(i1,i2, Delta,Lambda,eps5, BS, prec);
-    if (DEBUGLEVEL>1) err_printf("  Entering CF...\n");
+    init_get_B(i1,i2, Delta2,Lambda,Deps5, BS, prec);
     /* Reduce B0 as long as we make progress: newB0 < oldB0 - 0.1 */
     for (;;)
     {
@@ -782,13 +943,13 @@ get_B0(long i1, GEN Delta, GEN Lambda, GEN eps5, long prec, baker_s *BS)
 }
 
 static GEN
-get_Bx_LLL(long i1, GEN Delta, GEN Lambda, GEN eps5, long prec, baker_s *BS)
+get_Bx_LLL(long i1, GEN Delta2, GEN Lambda, long prec, baker_s *BS)
 {
   GEN B0 = Baker(BS), Bx = NULL;
   long step = 0, i2 = (i1 == 1)? 2: 1;
   for(;;) /* i2 from 1 to r unless r = 1 [then i2 = 2] */
   {
-    init_get_B(i1,i2, Delta,Lambda,eps5, BS, prec);
+    init_get_B(i1,i2, Delta2,Lambda,NULL, BS, prec);
     if (DEBUGLEVEL>1) err_printf("  Entering LLL...\n");
     /* Reduce B0 as long as we make progress: newB0 < oldB0 - 0.1 */
     for (;;)
@@ -800,6 +961,7 @@ get_Bx_LLL(long i1, GEN Delta, GEN Lambda, GEN eps5, long prec, baker_s *BS)
       for (cf = 0; cf < cfMAX; cf++, kappa = muliu(kappa,10))
       {
         int res = LLL_1stPass(&B0, kappa, BS, &Bx);
+        if (res < 0) return NULL;
         if (res) break;
         if (DEBUGLEVEL>1) err_printf("LLL failed. Increasing kappa\n");
       }
@@ -811,7 +973,7 @@ get_Bx_LLL(long i1, GEN Delta, GEN Lambda, GEN eps5, long prec, baker_s *BS)
 
         if (! (Q = GuessQi(BS->delta, BS->lambda, &ep)) ) break;
 
-        /* Beware Q[2]] = gen_0 */
+        /* Q[2] != 0 */
         denbound = gadd(mulri(B0, absi(gel(Q,1))),
                         mulii(BS->Ind, absi(gel(Q,2))));
         q = denom( bestappr(BS->delta, denbound) );
@@ -833,20 +995,36 @@ get_Bx_LLL(long i1, GEN Delta, GEN Lambda, GEN eps5, long prec, baker_s *BS)
 }
 
 static GEN
-LargeSols(GEN P, GEN tnf, GEN rhs, GEN ne, GEN *pS)
+LargeSols(GEN P, GEN tnf, GEN rhs, GEN ne)
 {
-  GEN Vect, ro, bnf, MatFU, A, csts, dP, vecdP, Bx;
-  GEN c1,c2,c3,c4,c11,c14,c15, x0, x1, x2, x3, b, zp1, tmp, eps5;
-  long iroot, ine, n, i, r, upb, bi1, Prec, prec, s,t;
+  GEN S = NULL, Delta0, ro, ALH, bnf, nf, MatFU, A, csts, dP, Bx;
+  GEN c1,c2,c3,c4,c90,c91,c14, x0, x1, x2, x3, tmp, eps5, prinfo;
+  long iroot, ine, n, r, Prec, prec, s,t;
   baker_s BS;
   pari_sp av = avma;
 
-  bnf  = gel(tnf,2);
+  prec = 0; /*-Wall*/
+  bnf = NULL; /*-Wall*/
+  iroot = 1;
+  ine = 1;
+
+START:
+  if (S) /* restart from precision problems */
+  {
+    S = gerepilecopy(av, S);
+    prec = precdbl(prec);
+    if (DEBUGLEVEL) pari_warn(warnprec,"thue",prec);
+    tnf = inithue(P, bnf, 0, prec);
+  }
+  else
+    S = cgetg(1, t_VEC);
+  bnf= gel(tnf,2);
+  nf = bnf_get_nf(bnf);
   csts = gel(tnf,7);
-  nf_get_sign(bnf_get_nf(bnf), &s, &t);
+  nf_get_sign(nf, &s, &t);
   BS.r = r = s+t-1; n = degpol(P);
   ro     = gel(tnf,3);
-  BS.ALH = gel(tnf,4);
+  ALH    = gel(tnf,4);
   MatFU  = gel(tnf,5);
   A      = gel(tnf,6);
   c1     = gel(csts,1); c1 = gmul(absi(rhs), c1);
@@ -854,44 +1032,40 @@ LargeSols(GEN P, GEN tnf, GEN rhs, GEN ne, GEN *pS)
   BS.hal = gel(csts,3);
   x0     = gel(csts,4);
   eps5   = gel(csts,5);
-  Prec = gtolong(gel(csts,6));
+  Prec = itos(gel(csts,6));
   BS.Ind = gel(csts,7);
   BS.MatFU = MatFU;
-  BS.bak = mulss(n, (n-1)*(n-2)); /* safe */
+  BS.bak = muluu(n, (n-1)*(n-2)); /* safe */
   BS.deg = n;
+  prinfo = gel(csts,8);
 
   if (t) x0 = gmul(x0, absisqrtn(rhs, n, Prec));
   tmp = divrr(c1,c2);
   c3 = mulrr(dbltor(1.39), tmp);
   c4 = mulur(n-1, c3);
+  c14 = mulrr(c4, vecmax_shallow(RgM_sumcol(gabs(A,DEFAULTPREC))));
+
   x1 = gmax(x0, sqrtnr(shiftr(tmp,1),n));
-
-  Vect = gmul(gabs(A,DEFAULTPREC), const_col(r, gen_1));
-  c14 = mulrr(c4, vecmax_shallow(Vect));
   x2 = gmax(x1, sqrtnr(mulur(10,c14), n));
-  if (DEBUGLEVEL>1) {
-    err_printf("x1 -> %Ps\n",x1);
-    err_printf("x2 -> %Ps\n",x2);
-    err_printf("c14 = %Ps\n",c14);
-  }
+  x3 = gmax(x2, sqrtnr(shiftr(c14, EXPO1+1),n));
+  c90 = gmul(shiftr(mulur(18,mppi(DEFAULTPREC)), 5*(4+r)),
+                    gmul(gmul(mpfact(r+3), powiu(muliu(BS.bak,r+2), r+3)),
+                         glog(muliu(BS.bak,2*(r+2)),DEFAULTPREC)));
 
-  dP = ZX_deriv(P); vecdP = cgetg(s+1, t_VEC);
-  for (i=1; i<=s; i++) gel(vecdP,i) = poleval(dP, gel(ro,i));
+  dP = ZX_deriv(P);
+  Delta0 = RgM_sumcol(A);
 
-  zp1 = dbltor(0.01);
-  x3 = gmax(x2, sqrtnr(shiftr(divrr(c14,zp1),1),n));
-
-  b = cgetg(r+1,t_COL);
-  for (iroot=1; iroot<=s; iroot++)
+  for (; iroot<=s; iroot++)
   {
-    GEN Delta, MatNE, Hmu, c5, c7;
+    GEN Delta = Delta0, Delta2, D, Deps5, MatNE, Hmu, diffRo, c5, c7, ro0;
+    long i1, iroot1, iroot2, k;
 
-    Vect = const_col(r, gen_1);
-    if (iroot <= r) gel(Vect,iroot) = stoi(1-n);
-    Delta = RgM_RgC_mul(A,Vect);
-
-    c5 = vecmax_shallow(gabs(Delta,Prec));
+    if (iroot <= r) Delta = RgC_add(Delta, RgC_Rg_mul(gel(A,iroot), stoi(-n)));
+    D = gabs(Delta,Prec); i1 = vecindexmax(D);
+    c5 = gel(D, i1);
+    Delta2 = RgC_Rg_div(Delta, gel(Delta, i1));
     c5  = myround(gprec_w(c5,DEFAULTPREC), 1);
+    Deps5 = divrr(subrr(c5,eps5), eps5);
     c7  = mulur(r,c5);
     BS.c10 = divur(n,c7);
     BS.c13 = divur(n,c5);
@@ -909,92 +1083,80 @@ LargeSols(GEN P, GEN tnf, GEN rhs, GEN ne, GEN *pS)
       if (DEBUGLEVEL>1) pari_warn(warnprec,"thue",prec);
       ro = tnf_get_roots(P, prec, s, t);
     }
+    ro0 = gel(ro,iroot);
     BS.ro    = ro;
     BS.iroot = iroot;
+    BS.Pi  = mppi(prec);
+    BS.Pi2 = Pi2n(1,prec);
+    diffRo = cgetg(r+1, t_VEC);
+    for (k=1; k<=r; k++)
+    {
+      GEN z = gel(ro,k);
+      z = (k == iroot)? gdiv(rhs, poleval(dP, z)): gsub(ro0, z);
+      gel(diffRo,k) = gabs(z, prec);
+    }
+    other_roots(iroot, &iroot1,&iroot2);
+    BS.divro = gdiv(gsub(ro0, gel(ro,iroot2)), gsub(ro0, gel(ro,iroot1)));
+    /* Compute h_1....h_r */
+    c91 = c90;
+    for (k=1; k<=r; k++)
+    {
+      GEN z = gdiv(gcoeff(MatFU,iroot1,k), gcoeff(MatFU,iroot2,k));
+      z = gmax(gen_1, abslog(z));
+      c91 = gmul(c91, gmax(gel(ALH,k), gdiv(z, BS.bak)));
+    }
+    BS.c91 = c91;
 
-    for (ine=1; ine<lg(ne); ine++)
+    for (; ine<lg(ne); ine++)
     {
       pari_sp av2 = avma;
+      long lS = lg(S);
       GEN Lambda, B0, c6, c8;
-      GEN NE = gel(MatNE,ine), Vect2 = cgetg(r+1,t_COL);
-      long k, i1;
+      GEN NE = gel(MatNE,ine), v = cgetg(r+1,t_COL);
 
       if (DEBUGLEVEL>1) err_printf("  - norm sol. no %ld/%ld\n",ine,lg(ne)-1);
       for (k=1; k<=r; k++)
       {
-        if (k == iroot)
-          tmp = gdiv(rhs, gmul(gel(vecdP,k), gel(NE,k)));
-        else
-          tmp = gdiv(gsub(gel(ro,iroot),gel(ro,k)), gel(NE,k));
-        gel(Vect2,k) = glog(gabs(tmp,prec), prec);
+        GEN z = gdiv(gel(diffRo,k), gabs(gel(NE,k), prec));
+        gel(v,k) = glog(z, prec);
       }
-      Lambda = RgM_RgC_mul(A,Vect2);
+      Lambda = RgM_RgC_mul(A,v);
 
       c6 = addrr(dbltor(0.1), vecmax_shallow(gabs(Lambda,DEFAULTPREC)));
       c6 = myround(c6, 1);
       c8 = addrr(dbltor(1.23), mulur(r,c6));
-      c11= mulrr(shiftr(c3,1) , mpexp(divrr(mulur(n,c8),c7)));
-      c15= mulrr(shiftr(c14,1), mpexp(divrr(mulur(n,c6),c5)));
-
-      if (DEBUGLEVEL>1) {
-        err_printf("  c6  = %Ps\n",c6);
-        err_printf("  c8  = %Ps\n",c8);
-        err_printf("  c11 = %Ps\n",c11);
-        err_printf("  c15 = %Ps\n",c15);
-      }
-      BS.c11 = c11;
-      BS.c15 = c15;
+      BS.c11= mulrr(shiftr(c3,1) , mpexp(divrr(mulur(n,c8),c7)));
+      BS.c15= mulrr(shiftr(c14,1), mpexp(divrr(mulur(n,c6),c5)));
       BS.NE = NE;
       BS.Hmu = gel(Hmu,ine);
-
-      i1 = vecindexmax(gabs(Delta,prec));
       if (is_pm1(BS.Ind))
       {
-        if (! (B0 = get_B0(i1, Delta, Lambda, eps5, prec, &BS)) ) goto PRECPB;
+        GEN mu = gel(ne,ine), Lmu = cgetg(lg(prinfo),t_VEC);
+        long i, j;
+
+        for (i = 1; i < lg(prinfo); i++)
+        {
+          GEN v = gel(prinfo,i), PR = gel(v,3), L = cgetg(4, t_VECSMALL);
+          for (j = 1; j <= 3; j++) L[j] = itou(nf_to_Fq(nf, mu, gel(PR,j)));
+          gel(Lmu, i) = L;
+        }
+        if (! (B0 = get_B0(i1, Delta2, Lambda, Deps5, prec, &BS)) ||
+            !TrySol(&S, B0, i1, Delta2, Lambda, ro, Lmu, NE,MatFU,prinfo,
+                    P,rhs))
+          goto START;
+        if (lg(S) == lS) avma = av2;
       }
       else
       {
-        if (! (Bx = get_Bx_LLL(i1, Delta, Lambda, eps5, prec, &BS)) ) goto PRECPB;
+        if (! (Bx = get_Bx_LLL(i1, Delta2, Lambda, prec, &BS)) )
+           goto START;
         x3 = gerepileupto(av2, gmax(Bx, x3));
-        continue;
-      }
-     /* For each possible value of b_i1, compute the b_i's
-      * and 2 conjugates of z = x - alpha y. Then check. */
-      upb = gtolong(gceil(B0));
-      for (bi1=-upb; bi1<=upb; bi1++)
-      {
-        GEN z1, z2;
-        for (i=1; i<=r; i++)
-        {
-          gel(b,i) = gdiv(gsub(gmul(gel(Delta,i), stoi(bi1)),
-                               gsub(gmul(gel(Delta,i),gel(Lambda,i1)),
-                                    gmul(gel(Delta,i1),gel(Lambda,i)))),
-                          gel(Delta,i1));
-          if (gcmp(distoZ(gel(b,i)), zp1) > 0) break;
-        }
-        if (i <= r) continue;
-
-        z1 = z2 = gen_1;
-        for(i=1; i<=r; i++)
-        {
-          GEN c = ground(gel(b,i));
-          z1 = gmul(z1, powgi(gcoeff(MatFU,1,i), c));
-          z2 = gmul(z2, powgi(gcoeff(MatFU,2,i), c));
-        }
-        z1 = gmul(z1, gel(NE,1));
-        z2 = gmul(z2, gel(NE,2));
-        if (!CheckSol(pS, z1,z2,P,rhs,ro)) goto PRECPB;
       }
     }
+    ine = 1;
   }
-  return gmax(x0, MiddleSols(pS, x3, ro, P, rhs, s, c1));
-
-PRECPB:
-  ne = gerepilecopy(av, ne);
-  prec += nbits2extraprec(5 * prec2nbits(DEFAULTPREC));
-  if (DEBUGLEVEL>1) pari_warn(warnprec,"thue",prec);
-  tnf = inithue(P, bnf, 0, prec);
-  return LargeSols(P, tnf, rhs, ne, pS);
+  x3 = gmax(x0, MiddleSols(&S, x3, ro, P, rhs, s, c1));
+  return SmallSols(S, x3, P, rhs);
 }
 
 /* restrict to solutions (x,y) with L | x, replacing each by (x/L, y) */
@@ -1013,7 +1175,7 @@ filter_sol_x(GEN S, GEN L)
   setlg(S, k); return S;
 }
 
-static GEN bnfisintnorm_i(GEN bnf, long s, GEN z);
+static GEN bnfisintnorm_i(GEN bnf, GEN a, long s, GEN z);
 static GEN
 tnf_get_Ind(GEN tnf) { return gmael(tnf,7,7); }
 static GEN
@@ -1102,14 +1264,11 @@ thue(GEN tnf, GEN rhs, GEN ne)
   }
   L = gel(POL,3);
   POL = gel(POL,1);
-
-  S = cgetg(1,t_VEC);
   if (lg(tnf) == 8)
   {
     if (!ne) ne = get_ne(tnf_get_bnf(tnf), rhs, tnf_get_Ind(tnf));
     if (lg(ne) == 1) { avma = av; return cgetg(1, t_VEC); }
-    x3 = LargeSols(POL, tnf, rhs, ne, &S);
-    S = SmallSols(S, x3, POL, rhs);
+    S = LargeSols(POL, tnf, rhs, ne);
   }
   else if (typ(gel(tnf,3)) == t_REAL)
   { /* Case s=0. All solutions are "small". */
@@ -1117,6 +1276,7 @@ thue(GEN tnf, GEN rhs, GEN ne)
     GEN c0 = gel(tnf,3), F;
     x3 = sqrtnr(mulir(absi(rhs),c0), degpol(POL));
     x3 = addrr(x3, dbltor(0.1)); /* guard from round-off errors */
+    S = cgetg(1,t_VEC);
     if (!ne && expo(x3) > 10)
     {
       long l;
@@ -1159,11 +1319,11 @@ thue(GEN tnf, GEN rhs, GEN ne)
     tnf = gel(tnf,2);
     bnf = tnf_get_bnf(tnf);
     ne = get_neabs(bnf, rhs, lg(tnf)==8?tnf_get_Ind(tnf): gen_1);
-    ne1= bnfisintnorm_i(bnf,1,ne);
+    ne1= bnfisintnorm_i(bnf,rhs,1,ne);
     S = thue(tnf, rhs, ne1);
     if (!odd(e) && lg(tnf)==8) /* if s=0, norms are positive */
     {
-      ne2 = bnfisintnorm_i(bnf,-1,ne);
+      ne2 = bnfisintnorm_i(bnf,rhs,-1,ne);
       S = shallowconcat(S, thue(tnf, negi(rhs), ne2));
     }
   }
@@ -1173,6 +1333,7 @@ thue(GEN tnf, GEN rhs, GEN ne)
     long i, l, e = v[2], va = v[3], vb = v[4];
     P = cgetg(lg(POL), t_POL); P[1] = POL[1];
     D = divisors(rhs); l = lg(D);
+    S = cgetg(1,t_VEC);
     for (i = 1; i < l; i++)
     {
       GEN Rab, df = gel(D,i), dg = gel(D,l-i); /* df*dg=|rhs| */
@@ -1437,11 +1598,20 @@ bnfisintnormabs(GEN bnf, GEN a)
 
 /* z = bnfisintnormabs(bnf,a), sa = 1 or -1, return bnfisintnorm(bnf,sa*|a|) */
 static GEN
-bnfisintnorm_i(GEN bnf, long sa, GEN z)
+bnfisintnorm_i(GEN bnf, GEN a, long sa, GEN z)
 {
-  GEN nf = checknf(bnf), T = nf_get_pol(nf), unit = NULL;
+  GEN nf = checknf(bnf), T = nf_get_pol(nf), f = nf_get_index(nf), unit = NULL;
+  GEN Tp, A = signe(a) == sa? a: negi(a);
   long sNx, i, j, N = degpol(T), l = lg(z);
   long norm_1 = 0; /* gcc -Wall */
+  ulong p, Ap = 0; /* gcc -Wall */
+  forprime_t S;
+  if (!signe(a)) return z;
+  u_forprime_init(&S,3,ULONG_MAX);
+  while((p = u_forprime_next(&S)))
+    if (umodiu(f,p)) { Ap = umodiu(A,p); if (Ap) break; }
+  Tp = ZX_to_Flx(T,p);
+  /* p > 2 doesn't divide A nor Q_denom(z in Z_K)*/
 
   /* update z in place to get correct signs: multiply by unit of norm -1 if
    * it exists, otherwise delete solution with wrong sign */
@@ -1450,8 +1620,16 @@ bnfisintnorm_i(GEN bnf, long sa, GEN z)
     GEN x = gel(z,i);
     int xpol = (typ(x) == t_POL);
 
-    if (xpol) sNx = signe(ZX_resultant(T, Q_primpart(x)));
-    else      sNx = gsigne(x) < 0 && odd(N) ? -1 : 1;
+    if (xpol)
+    {
+      GEN dx, y = Q_remove_denom(x,&dx);
+      ulong Np = Flx_resultant(Tp, ZX_to_Flx(y,p), p);
+      ulong dA = dx? Fl_mul(Ap, Fl_powu(umodiu(dx,p), N, p), p): Ap;
+      /* Nx = Res(T,y) / dx^N = A or -A. Check mod p */
+      sNx = dA == Np? sa: -sa;
+    }
+    else
+      sNx = gsigne(x) < 0 && odd(N) ? -1 : 1;
     if (sNx != sa)
     {
       if (! unit) norm_1 = get_unit_1(bnf, &unit);
@@ -1477,5 +1655,5 @@ bnfisintnorm(GEN bnf, GEN a)
     case t_VEC: a = gel(a,1); break;
     case t_MAT: a = factorback(a); break;
   }
-  return gerepilecopy(av, bnfisintnorm_i(bnf,signe(a), ne));
+  return gerepilecopy(av, bnfisintnorm_i(bnf,a,signe(a), ne));
 }

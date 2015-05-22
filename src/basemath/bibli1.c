@@ -164,9 +164,16 @@ matqr(GEN x, long flag, long prec)
 {
   pari_sp av = avma;
   GEN B, Q, L;
+  long n = lg(x)-1;
   if (typ(x) != t_MAT) pari_err_TYPE("matqr",x);
+  if (!n)
+  {
+    if (!flag) retmkvec2(cgetg(1,t_MAT),cgetg(1,t_MAT));
+    retmkvec2(cgetg(1,t_VEC),cgetg(1,t_MAT));
+  }
+  if (n != nbrows(x)) pari_err_DIM("matqr");
   if (!RgM_QR_init(x, &B,&Q,&L, prec)) pari_err_PREC("matqr");
-  if (!flag) Q = shallowtrans(mathouseholder(Q, matid(lg(x)-1)));
+  if (!flag) Q = shallowtrans(mathouseholder(Q, matid(n)));
   return gerepilecopy(av, mkvec2(Q, shallowtrans(L)));
 }
 
@@ -217,7 +224,7 @@ R_from_QR(GEN x, long prec)
 /* return Gram-Schmidt orthogonal basis (f) associated to (e), B is the
  * vector of the (f_i . f_i)*/
 GEN
-gram_schmidt(GEN e, GEN *ptB)
+RgM_gram_schmidt(GEN e, GEN *ptB)
 {
   long i,j,lx = lg(e);
   GEN f = RgM_shallowcopy(e), B, iB;
@@ -241,6 +248,27 @@ gram_schmidt(GEN e, GEN *ptB)
     gel(iB,i) = ginv(gel(B,i));
   }
   *ptB = B; return f;
+}
+
+/* Assume B an LLL-reduced basis, t a vector. Apply Babai's nearest plane
+ * algorithm to (B,t) */
+GEN
+RgM_Babai(GEN B, GEN t)
+{
+  GEN C, N, G = RgM_gram_schmidt(B, &N), b = t;
+  long j, n = lg(B)-1;
+
+  C = cgetg(n+1,t_COL);
+  for (j = n; j > 0; j--)
+  {
+    GEN c = gdiv( RgV_dotproduct(b, gel(G,j)), gel(N,j) );
+    long e;
+    c = grndtoi(c,&e);
+    if (e >= 0) return NULL;
+    if (signe(c)) b = RgC_sub(b, RgC_Rg_mul(gel(G,j), c));
+    gel(C,j) = c;
+  }
+  return C;
 }
 
 /********************************************************************/
@@ -1143,12 +1171,14 @@ minim0_dolll(GEN a, GEN BORNE, GEN STOCKMAX, long flag, long dolll)
       break;
     case min_FIRST:
       if (n == 1) return cgetg(1,t_VEC);
+      if (!sBORNE && BORNE) return cgetg(1, t_VEC);
       break;
     case min_PERF:
       if (n == 1) return gen_0;
       break;
     default:
-      if (n == 1) retmkvec3(gen_0, gen_0, cgetg(1, t_MAT));
+      if (n == 1 || (!sBORNE && BORNE))
+        retmkvec3(gen_0, gen_0, cgetg(1, t_MAT));
       break;
   }
   minim_alloc(n, &q, &x, &y, &z, &v);
@@ -1373,7 +1403,7 @@ minim2(GEN a, GEN borne, GEN stockmax)
 GEN
 perf(GEN a)
 {
-  return minim0(a,gen_0,gen_0,min_PERF);
+  return minim0(a,NULL,NULL,min_PERF);
 }
 
 static GEN
@@ -1522,7 +1552,9 @@ smallvectors(GEN q, GEN BORNE, long maxnum, FP_chk_fun *CHECK)
     borne1 = BORNE;
     if (typ(borne1) != t_REAL)
     {
-      long prec = nbits2prec(gexpo(borne1) + 10);
+      long prec;
+      if (gequal0(borne1)) retmkvec3(gen_0, gen_0, cgetg(1,t_MAT));
+      prec = nbits2prec(gexpo(borne1) + 10);
       borne1 = gtofp(borne1, maxss(prec, DEFAULTPREC));
     }
   }

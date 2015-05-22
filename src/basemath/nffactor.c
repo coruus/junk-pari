@@ -218,6 +218,23 @@ GEN
 nfgcd(GEN P, GEN Q, GEN T, GEN den)
 { return nfgcd_all(P,Q,T,den,NULL); }
 
+int
+nfissquarefree(GEN nf, GEN x)
+{
+  pari_sp av = avma;
+  GEN g, y = RgX_deriv(x);
+  if (RgX_is_rational(x))
+    g = QX_gcd(x, y);
+  else
+  {
+    GEN T = get_nfpol(nf,&nf);
+    x = liftpol_shallow(x);
+    y = liftpol_shallow(y);
+    g = nfgcd(x, y, T, nf? nf_get_index(nf): NULL);
+  }
+  avma = av; return (degpol(g) == 0);
+}
+
 /*******************************************************************/
 /*             FACTOR OVER (Z_K/pr)[X] --> FqX_factor              */
 /*******************************************************************/
@@ -287,14 +304,32 @@ proper_nf(GEN nf)
 { return (lg(nf) == 3)? gel(nf,1): nf; }
 
 static GEN
-get_den(GEN *pnf, GEN T)
+fix_nf(GEN *pnf, GEN *pT, GEN *pA)
 {
   GEN den = gen_1;
   if (!*pnf)
   {
-    GEN fa, P, q, D;
-    *pnf = nfinitall(T, nf_PARTIALFACT, DEFAULTPREC);
-    D = nf_get_disc(proper_nf(*pnf));
+    GEN fa, P, q, D, T = *pT;
+    GEN nf, NF = nfinitall(T, nf_PARTIALFACT, DEFAULTPREC);
+    *pnf = nf = proper_nf(NF);
+    if (nf != NF) { /* t_POL defining base field changed (not monic) */
+      long i, l;
+      GEN A = *pA, a = cgetg_copy(A, &l);
+      GEN rev = gel(NF,2), pow, dpow;
+
+      *pT = T = nf_get_pol(nf); /* need to update T */
+      pow = QXQ_powers(lift_intern(rev), degpol(T)-1, T);
+      pow = Q_remove_denom(pow, &dpow);
+      a[1] = A[1];
+      for (i=2; i<l; i++) {
+        GEN c = gel(A,i);
+        if (typ(c) == t_POL) c = QX_ZXQV_eval(c, pow, dpow);
+        gel(a,i) = c;
+      }
+      *pA = Q_primpart(a); /* need to update A */
+    }
+
+    D = nf_get_disc(nf);
     if (is_pm1(D)) return gen_1;
     fa = absi_factor_limit(D, 0);
     P = gel(fa,1); q = gel(P, lg(P)-1);
@@ -311,36 +346,20 @@ get_nfsqff_data(GEN *pnf, GEN *pT, GEN *pA, GEN *pB, GEN *ptbad)
   long n = degpol(T);
   if (nfsqff_use_Trager(n, degpol(A)))
   {
-    *pnf = T; bad = den = ZX_disc(T);
+    *pnf = T;
+    bad = den = ZX_disc(T);
     if (is_pm1(leading_term(T))) den = indexpartial(T, den);
   }
   else
   {
-    GEN nf;
-    den = get_den(pnf, T);
-    nf = proper_nf(*pnf);
-    bad = nf_get_index(nf);
+    den = fix_nf(pnf, pT, pA);
+    bad = nf_get_index(*pnf);
     if (den != gen_1) bad = mulii(bad, den);
-    if (nf != *pnf) { /* t_POL defining base field changed (not monic) */
-      long i, l;
-      GEN a = cgetg_copy(A, &l);
-      GEN rev = gel(*pnf,2), pow, dpow;
-
-      *pT = T = nf_get_pol(nf); /* need to update T */
-      pow = QXQ_powers(lift_intern(rev), n-1, T);
-      pow = Q_remove_denom(pow, &dpow);
-      a[1] = A[1];
-      for (i=2; i<l; i++) {
-        GEN c = gel(A,i);
-        if (typ(c) == t_POL) c = QX_ZXQV_eval(c, pow, dpow);
-        gel(a,i) = c;
-      }
-      *pA = A = Q_primpart(a); /* need to update A */
-      *pnf = nf; /* now discard change of variable */
-    }
+    A = *pA;
+    T = *pT;
   }
   (void)nfgcd_all(A, RgX_deriv(A), T, bad, pB);
-  if( ptbad) *ptbad = bad;
+  if (ptbad) *ptbad = bad;
   return den;
 }
 
@@ -359,7 +378,7 @@ nfroots(GEN nf,GEN pol)
 {
   pari_sp av = avma;
   GEN z, A, B, T, den;
-  long d;
+  long d, dT;
 
   if (!nf) return nfrootsQ(pol);
   T = get_nfpol(nf, &nf);
@@ -374,13 +393,28 @@ nfroots(GEN nf,GEN pol)
     A = mkpolmod(gneg_i(gel(A,2)), T);
     return gerepilecopy(av, mkvec(A));
   }
-  if (degpol(T) == 1) return gerepileupto(av, nfrootsQ(simplify_shallow(A)));
+  dT = degpol(T);
+  if (dT == 1) return gerepileupto(av, nfrootsQ(simplify_shallow(A)));
 
   A = Q_primpart(A);
   den = get_nfsqff_data(&nf, &T, &A, &B, NULL);
   if (degpol(B) != d) B = Q_primpart( QXQX_normalize(B, T) );
   ensure_lt_INT(B);
-  z = nfsqff(nf,B, ROOTS, den);
+  if (RgX_is_ZX(B))
+  {
+    GEN v = gel(ZX_factor(B), 1);
+    long i, l = lg(v), p = mael(factoru(dT),1,1); /* smallest prime divisor */
+    z = cgetg(1, t_VEC);
+    for (i = 1; i < l; i++)
+    {
+      GEN b = gel(v,i); /* irreducible / Q */
+      long db = degpol(b);
+      if (db != 1 && degpol(b) < p) continue;
+      z = shallowconcat(z, nfsqff(nf, b, ROOTS, den));
+    }
+  }
+  else
+    z = nfsqff(nf,B, ROOTS, den);
   z = gerepileupto(av, QXQV_to_mod(z, T));
   gen_sort_inplace(z, (void*)&cmp_RgX, &cmp_nodata, NULL);
   return z;
@@ -571,6 +605,19 @@ nffactor(GEN nf,GEN pol)
   if (DEBUGLEVEL>2) timer_printf(&ti, "squarefree test");
   if (degpol(B) != dA) B = Q_primpart( QXQX_normalize(B, T) );
   ensure_lt_INT(B);
+  if (RgX_is_ZX(B))
+  {
+    GEN v = gel(ZX_factor(B), 1);
+    long i, l = lg(v);
+    y = cgetg(1, t_VEC);
+    for (i = 1; i < l; i++)
+    {
+      GEN b = gel(v,i); /* irreducible / Q */
+      y = shallowconcat(y, nfsqff(nf, b, 0, den));
+    }
+  }
+  else
+    y = nfsqff(nf,B, 0, den);
   y = nfsqff(nf,B, 0, den);
   if (DEBUGLEVEL>3) err_printf("number of factor(s) found: %ld\n", lg(y)-1);
 
@@ -1701,6 +1748,7 @@ nfsqff_trager(GEN u, GEN T, GEN dent)
       pari_err_IRREDPOL("factornf [modulus]",T);
     gel(P,i) = QXQX_normalize(F, T);
   }
+  gen_sort_inplace(P, (void*)&cmp_RgX, &gen_cmp_RgX, NULL);
   return P;
 }
 
@@ -1864,7 +1912,7 @@ nfsqff(GEN nf, GEN pol, long fl, GEN den)
 GEN
 nfroots_split(GEN nf, GEN pol)
 {
-  GEN T = get_nfpol(nf,&nf), den = get_den(&nf, T);
+  GEN T = get_nfpol(nf,&nf), den = fix_nf(&nf, &T, &pol);
   pari_sp av = avma;
   GEN z = gerepilecopy(av, nfsqff(nf, pol, ROOTS_SPLIT, den));
   return (lg(z) == 1)? NULL: mkvec2(z, nf);
@@ -1953,7 +2001,7 @@ nfcyclo_root(GEN nf, long n_cyclo, prklift_t *P)
 {
   pari_sp av = avma;
   GEN init_fa = NULL; /* factors mod pr */
-  GEN z, nfpol = nf_get_pol(nf), pol = polcyclo(n_cyclo, MAXVARN);
+  GEN z, nfpol = nf_get_pol(nf), pol = polcyclo(n_cyclo, 0);
   long nbf, deg = degpol(pol); /* = eulerphi(n_cyclo) */
   if (P->L->Tp)
     nbf = FqX_split_deg1(&init_fa, pol, P->L->Tp, P->L->p);

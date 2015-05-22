@@ -141,7 +141,6 @@ mt_queue_run(void *arg)
       pthread_cond_signal(mq->pcond);
     } UNLOCK(mq->pmut);
   }
-  return NULL;
 }
 
 static long
@@ -188,7 +187,7 @@ mtpthread_queue_get(struct mt_state *junk, long *workid, long *pending)
     BLOCK_SIGINT_END
   }
   mq = mt->mq+last;
-  if (mq->output==err_e_STACK) pari_err(e_STACK);
+  if (mq->output==err_e_STACK) pari_err(e_STACKTHREAD);
   done = gcopy(mq->output);
   mq->output = NULL;
   if (workid) *workid = mq->workid;
@@ -258,7 +257,7 @@ void
 mt_queue_start(struct pari_mt *pt, GEN worker)
 {
   if (pari_mt)
-    return mtsingle_queue_start(pt, worker);
+    mtsingle_queue_start(pt, worker);
   else
   {
     long NBT = pari_mt_nbthreads;

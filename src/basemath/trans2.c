@@ -82,7 +82,7 @@ mpatan(GEN x)
   if (e < -100)
     alpha = 1.65149612947 - e; /* log_2(Pi) - e */
   else
-    alpha = log2(PI / atan(rtodbl(p1)));
+    alpha = log2(M_PI / atan(rtodbl(p1)));
   beta = (double)(prec2nbits(l)>>1);
   delta = 1 + beta - alpha/2;
   if (delta <= 0) { n = 1; m = 0; }
@@ -277,7 +277,7 @@ gacos(GEN x, long prec)
       if (lg(y) > 2)
       {
         p1 = gsubsg(1,gsqr(y));
-        if (gequal0(p1)) return zeroser(varn(y), valp(p1)>>1);
+        if (gequal0(p1)) { avma = av; return zeroser(varn(y), valp(p1)>>1); }
         p1 = integser(gdiv(gneg(derivser(y)), gsqrt(p1,prec)));
         /*y(t) = 1+O(t)*/
         if (gequal1(gel(y,2)) && !valp(y)) return gerepileupto(av, p1);
@@ -497,6 +497,57 @@ gtanh(GEN x, long prec)
   }
   return trans_eval("tanh",gtanh,x,prec);
 }
+
+static GEN
+mpcotanh(GEN x)
+{
+  long lx, s = signe(x);
+  GEN y;
+
+  if (!s) pari_err_DOMAIN("cotan", "argument", "=", gen_0, x);
+
+  lx = realprec(x);
+  if (absr_cmp(x, stor(prec2nbits(lx), LOWDEFAULTPREC)) >= 0) {
+    y = real_1(lx);
+  } else {
+    pari_sp av = avma;
+    long ex = expo(x);
+    GEN t;
+    if (ex < 1 - BITS_IN_LONG) x = rtor(x, lx + nbits2extraprec(-ex)-1);
+    t = exp1r_abs(gmul2n(x,1)); /* exp(|2x|) - 1 */
+    y = gerepileuptoleaf(av, divrr(addsr(2,t), t));
+  }
+  if (s < 0) togglesign(y); /* cotanh is odd */
+  return y;
+}
+
+GEN
+gcotanh(GEN x, long prec)
+{
+  pari_sp av;
+  GEN y, t;
+
+  switch(typ(x))
+  {
+    case t_REAL: return mpcotanh(x);
+    case t_COMPLEX:
+      if (isintzero(gel(x,1))) retmkcomplex(gen_0, gcotan(gel(x,2),prec));
+      /* fall through */
+    case t_PADIC:
+      av = avma;
+      t = gexp(gmul2n(x,1),prec);
+      t = gdivsg(2, gsubgs(t,1));
+      return gerepileupto(av, gaddsg(1,t));
+    default:
+      av = avma; if (!(y = toser_i(x))) break;
+      if (gequal0(y)) return gerepilecopy(av, y);
+      t = gexp(gmul2n(y, 1),prec);
+      t = gdivsg(2, gsubgs(t,1));
+      return gerepileupto(av, gaddsg(1,t));
+  }
+  return trans_eval("cotanh",gcotanh,x,prec);
+}
+
 /********************************************************************/
 /**                                                                **/
 /**                     AREA HYPERBOLIC SINE                       **/
@@ -971,11 +1022,11 @@ double
 darg(double s, double t)
 {
   double x;
-  if (!t) return (s>0)? 0.: PI;
-  if (!s) return (t>0)? PI/2: -PI/2;
+  if (!t) return (s>0)? 0.: M_PI;
+  if (!s) return (t>0)? M_PI/2: -M_PI/2;
   x = atan(t/s);
   return (s>0)? x
-              : ((t>0)? x+PI : x-PI);
+              : ((t>0)? x+M_PI : x-M_PI);
 }
 
 void
@@ -1002,6 +1053,26 @@ red_mod_2z(GEN x, GEN z)
   return addrr(mulir(floorr(divrr(d, Z)), Z), x);
 }
 #endif
+
+/* lngamma(1+z) = -Euler*z + sum_{i > 1} zeta(i)/i (-z)^i
+ * at relative precision prec, |z| < 1 is small */
+static GEN
+lngamma1(GEN z, long prec)
+{ /* sum_{i > l} |z|^(i-1) = |z|^l / (1-|z|) < 2^-B
+   * for l > (B+1) / |log2(|z|)| */
+  long i, l = ceil((bit_accuracy(prec) + 1) / - dbllog2(z));
+  GEN zet, me = mpeuler(prec), s = gen_0;
+  setsigne(me, -1); /* -Euler */
+  if (l <= 1) return gmul(me, z);
+  zet = veczeta(gen_1, gen_2, l-1, prec); /* z[i] = zeta(i+1) */
+  for (i = l; i > 1; i--)
+  {
+    GEN c = divru(gel(zet,i-1), i);
+    if (odd(i)) setsigne(c, -1);
+    s = gadd(gmul(s,z), c);
+  }
+  return gmul(z, gadd(gmul(s,z), me));
+}
 
 static GEN
 cxgamma(GEN s0, int dolog, long prec)
@@ -1037,7 +1108,7 @@ cxgamma(GEN s0, int dolog, long prec)
     iS = imag_i(S);
     if (et > 0 && l > 0)
     {
-      GEN t = gmul(iS, dbltor(PI / l)), logt = glog(t,LOWDEFAULTPREC);
+      GEN t = gmul(iS, dbltor(M_PI / l)), logt = glog(t,LOWDEFAULTPREC);
       la = gmul(t, logt);
       if      (gcmpgs(la, 3) < 0)   { logla = log(3.); la = stoi(3); }
       else if (gcmpgs(la, 150) > 0) { logla = rtodbl(logt); la = t; }
@@ -1050,7 +1121,7 @@ cxgamma(GEN s0, int dolog, long prec)
     lim = (long)ceil(l / (1.+ logla));
     if (lim == 0) lim = 1;
 
-    u = gmul(la, dbltor((lim-0.5)/PI));
+    u = gmul(la, dbltor((lim-0.5)/M_PI));
     l2 = gsub(gsqr(u), gsqr(iS));
     if (signe(l2) > 0)
     {
@@ -1066,15 +1137,14 @@ cxgamma(GEN s0, int dolog, long prec)
     double st = typ(s) == t_REAL? 0.0: rtodbl(imag_i(s));
     double la, l,l2,u,v, rlogs, ilogs;
 
-    if (dolog)
-    {
-      /* loggamma(1+u) ~ - Euler * u: cancellation if u is small */
-      if (fabs(ssig-1) + fabs(st) < 0.0001)
-      { /* s ~ 1, take care */
-        long e = gexpo(gsubgs(s,1));
-        prec += nbits2nlong(-e);
-        s = gprec_w(s, prec);
-      }
+    if (fabs(ssig-1) + fabs(st) < 0.0001)
+    { /* s ~ 1: loggamma(1+u) ~ - Euler * u, cancellation */
+      if (funeq) /* s0 ~ 0: use lngamma(s0)+log(s0) = lngamma(s0+1) */
+        y = gsub(lngamma1(s0,prec), glog(s0,prec));
+      else
+        y = lngamma1(gsubgs(s0,1),prec);
+      if (!dolog) y = gexp(y,prec);
+      avma = av; return affc_fixlg(y, res);
     }
     dcxlog(ssig,st, &rlogs,&ilogs);
     /* Re (s - 1/2) log(s) */
@@ -1082,7 +1152,7 @@ cxgamma(GEN s0, int dolog, long prec)
     /* Im (s - 1/2) log(s) */
     v = (ssig - 0.5)*ilogs + st * rlogs;
     /* l2 = | (s - 1/2) log(s) - s + log(2Pi)/2 |^2 ~ |lngamma(s))|^2 */
-    u = u - ssig + log(2.*PI)/2;
+    u = u - ssig + log(2.*M_PI)/2;
     v = v - st;
     l2 = u*u + v*v;
     if (l2 < 0.000001) l2 = 0.000001;
@@ -1092,7 +1162,7 @@ cxgamma(GEN s0, int dolog, long prec)
     la = 3.; /* FIXME: heuristic... */
     if (st > 1 && l > 0)
     {
-      double t = st * PI / l;
+      double t = st * M_PI / l;
       la = t * log(t);
       if (la < 3) la = 3.;
       if (la > 150) la = t;
@@ -1100,7 +1170,7 @@ cxgamma(GEN s0, int dolog, long prec)
     lim = (long)ceil(l / (1.+ log(la)));
     if (lim == 0) lim = 1;
 
-    u = (lim-0.5) * la / PI;
+    u = (lim-0.5) * la / M_PI;
     l2 = u*u - st*st;
     if (l2 > 0)
     {
@@ -1409,7 +1479,6 @@ GEN
 ggamma(GEN x, long prec)
 {
   pari_sp av;
-  long m;
   GEN y, z;
 
   switch(typ(x))
@@ -1425,14 +1494,32 @@ ggamma(GEN x, long prec)
       return cxgamma(x, 0, prec);
 
     case t_FRAC:
-      if (!equaliu(gel(x,2),2)) break;
-      z = gel(x,1); /* true argument is z/2 */
-      if (is_bigint(z) || labs(m = itos(z)) > 962354)
+    {
+      GEN a = gel(x,1), b = gel(x,2), c;
+      long m;
+      if (equaliu(b,2))
       {
-        pari_err_OVERFLOW("gamma");
-        return NULL; /* not reached */
+        if (is_bigint(a) || labs(m = itos(a)) > 962354)
+        {
+          pari_err_OVERFLOW("gamma");
+          return NULL; /* not reached */
+        }
+        return gammahs(m-1, prec);
       }
-      return gammahs(m-1, prec);
+      av = avma; c = subii(a,b);
+      if (expi(c) - expi(b) < -10)
+      {
+        x = mkfrac(c,b);
+        if (lgefint(b) >= prec) x = fractor(x,prec);
+        y = mpexp(lngamma1(x, prec));
+      }
+      else
+      {
+        x = fractor(x, prec);
+        y = cxgamma(x, 0, prec);
+      }
+      return gerepileupto(av, y);
+    }
 
     case t_PADIC: return Qp_gamma(x);
     default:
@@ -1447,8 +1534,16 @@ ggamma(GEN x, long prec)
         {
           pi = mppi(prec);
           Y = gsubsg(1, y);
+          y0= subsi(1, y0);
         }
-        z = gexp(glngamma(Y,prec),prec);
+        z = glngamma(Y,prec);
+        if (!valp(z))
+        {
+          z = serchop0(z);
+          z = gmul(ggamma(y0,prec), gexp(z,prec));
+        }
+        else
+          z = gexp(z,prec);
         if (pi)
           z = gdiv(mpodd(t)? negr(pi): pi,
                    gmul(z, gsin(gmul(pi,serchop0(y)), prec)));
@@ -1474,7 +1569,7 @@ mpfactr(long n, long prec)
 GEN
 glngamma(GEN x, long prec)
 {
-  pari_sp av;
+  pari_sp av = avma;
   GEN y, p1;
 
   switch(typ(x))
@@ -1485,33 +1580,37 @@ glngamma(GEN x, long prec)
                          strtoGENstr("non-positive integer"), x);
       if (cmpiu(x,200 + 50*(prec-2)) > 0) /* heuristic */
         return cxgamma(x, 1, prec);
-      av = avma;
       return gerepileuptoleaf(av, logr_abs( itor(mpfact(itos(x) - 1), prec) ));
     case t_FRAC:
     {
-      GEN a, b;
-      long e1, e2;
-      av = avma;
-      a = gel(x,1);
-      b = gel(x,2);
-      e1 = expi(subii(a,b)); e2 = expi(b);
-      if (e2 > e1) prec += nbits2nlong(e2 - e1);
-      x = fractor(x, prec);
-      return gerepileupto(av, cxgamma(x, 1, prec));
+      GEN a = gel(x,1), b = gel(x,2), c = subii(a,b);
+      long e = expi(b) - expi(c);
+      if (e > 10)
+      {
+        x = mkfrac(c,b);
+        if (lgefint(b) >= prec) x = fractor(x,prec + nbits2nlong(e));
+        y = lngamma1(x, prec);
+      }
+      else
+      {
+        x = fractor(x, e > 1? prec+EXTRAPRECWORD: prec);
+        y = cxgamma(x, 1, prec);
+      }
+      return gerepileupto(av, y);
     }
 
     case t_REAL: case t_COMPLEX:
       return cxgamma(x, 1, prec);
 
     default:
-      av = avma; if (!(y = toser_i(x))) break;
+      if (!(y = toser_i(x))) break;
       if (valp(y)) pari_err_DOMAIN("lngamma","valuation", "!=", gen_0, x);
       /* (lngamma y)' = y' psi(y) */
       p1 = integser(gmul(derivser(y), gpsi(y, prec)));
       if (!gequal1(gel(y,2))) p1 = gadd(p1, glngamma(gel(y,2),prec));
       return gerepileupto(av, p1);
 
-    case t_PADIC: av = avma; return gerepileupto(av, Qp_log(Qp_gamma(x)));
+    case t_PADIC: return gerepileupto(av, Qp_log(Qp_gamma(x)));
   }
   return trans_eval("lngamma",glngamma,x,prec);
 }
@@ -1548,7 +1647,7 @@ cxpsi(GEN s0, long prec)
     lim = 2 + (long)ceil((prec2nbits_mul(prec, LOG2) - l) / (2*(1+log((double)la))));
     if (lim < 2) lim = 2;
 
-    l = (2*lim-1)*la / (2.*PI);
+    l = (2*lim-1)*la / (2.*M_PI);
     L = gsub(dbltor(l*l), gsqr(iS));
     if (signe(L) < 0) L = gen_0;
 
@@ -1571,7 +1670,7 @@ cxpsi(GEN s0, long prec)
     lim = 2 + (long)ceil((prec2nbits_mul(prec, LOG2) - l) / (2*(1+log((double)la))));
     if (lim < 2) lim = 2;
 
-    l = (2*lim-1)*la / (2.*PI);
+    l = (2*lim-1)*la / (2.*M_PI);
     l = l*l - st*st;
     if (l < 0.) l = 0.;
     nn = (long)ceil( sqrt(l) - ssig );
@@ -1613,13 +1712,14 @@ static GEN
 serpsi1(long n, long v, long prec)
 {
   long i, l = n+3;
-  GEN g, s = cgetg(l, t_SER);
+  GEN z, g, s = cgetg(l, t_SER);
   s[1] = evalsigne(1)|evalvalp(0)|evalvarn(v);
   g = mpeuler(prec); setsigne(g, -1);
+  z = veczeta(gen_1, gen_2, n, prec); /* zeta(2..n) */
   gel(s,2) = g;
   for (i = 2; i < l-1; i++)
   {
-    GEN c = szeta(i, prec);
+    GEN c = gel(z,i-1); /* zeta(i) */
     if (odd(i)) setsigne(c, -1);
     gel(s,i+1) = c;
   }

@@ -842,7 +842,7 @@ divisors_init(GEN n, GEN *pP, GEN *pE)
       set_fact(absi_factor(n), &P,&E);
       isint = 1; break;
     case t_VEC:
-      if (lg(n) != 3) pari_err_TYPE("divisors",n);
+      if (lg(n) != 3 || typ(gel(n,2)) !=t_MAT) pari_err_TYPE("divisors",n);
       set_fact_check(gel(n,2), &P,&E, &isint);
       break;
     case t_MAT:
@@ -973,6 +973,18 @@ _mod4(GEN c) {
   if (!s) return 0;
   r = mod4(c); if (s < 0) r = 4-r;
   return r;
+}
+
+long
+corediscs(long D, ulong *f)
+{
+  /* D = f^2 dK */
+  long dK = D>=0 ? (long) coreu(D) : -(long) coreu(-(ulong) D);
+  ulong dKmod4 = ((ulong)dK)&3UL;
+  if (dKmod4 == 2 || dKmod4 == 3)
+    dK *= 4;
+  if (f) *f = usqrt((ulong)(D/dK));
+  return D;
 }
 
 GEN

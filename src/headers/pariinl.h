@@ -98,6 +98,14 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
        gel(_v,3) = (z);\
        gel(_v,4) = (t);\
        gel(_v,5) = (u); return _v; } while(0)
+#define retmkcol6(x,y,z,t,u,v)\
+  do { GEN _v = cgetg(7, t_COL);\
+       gel(_v,1) = (x);\
+       gel(_v,2) = (y);\
+       gel(_v,3) = (z);\
+       gel(_v,4) = (t);\
+       gel(_v,5) = (u);\
+       gel(_v,6) = (v); return _v; } while(0)
 #define retmkmat(x)\
   do { GEN _v = cgetg(2, t_MAT);\
        gel(_v,1) = (x); return _v; } while(0)
@@ -206,6 +214,8 @@ INLINE GEN
 mkcol4(GEN x, GEN y, GEN z, GEN t) { retmkcol4(x,y,z,t); }
 INLINE GEN
 mkcol5(GEN x, GEN y, GEN z, GEN t, GEN u) { retmkcol5(x,y,z,t,u); }
+INLINE GEN
+mkcol6(GEN x, GEN y, GEN z, GEN t, GEN u, GEN v) { retmkcol6(x,y,z,t,u,v); }
 INLINE GEN
 mkcols(long x) { retmkcol(stoi(x)); }
 INLINE GEN
@@ -831,6 +841,12 @@ rowslice(GEN A, long x1, long x2)
   return B;
 }
 
+INLINE GEN
+matslice(GEN A, long x1, long x2, long y1, long y2)
+{
+  return rowslice(vecslice(A, y1, y2), x1, x2);
+}
+
 /* shallow, remove coeff of index j */
 INLINE GEN
 vecsplice(GEN a, long j)
@@ -863,7 +879,7 @@ row(GEN A, long x0)
   return B;
 }
 INLINE GEN
-row_Flm(GEN A, long x0)
+Flm_row(GEN A, long x0)
 {
   long i, lB = lg(A);
   GEN B  = cgetg(lB, t_VECSMALL);
@@ -892,8 +908,8 @@ row_i(GEN A, long x0, long x1, long x2)
 INLINE GEN
 vecreverse(GEN A)
 {
-  long i,l = lg(A);
-  GEN B = cgetg(l, typ(A));
+  long i, l;
+  GEN B = cgetg_copy(A, &l);
   for (i=1; i<l; i++) gel(B, i) = gel(A, l-i);
   return B;
 }
@@ -1201,9 +1217,9 @@ bin_copy(GENbin *p)
   y = (GEN)memcpy((void*)new_chunk(len), (void*)GENbinbase(p), len*sizeof(long));
   y += dx;
   if (p->canon)
-    shiftaddress_canon(y, (y-x)*sizeof(long));
+    shiftaddress_canon(y, ((ulong)y-(ulong)x));
   else
-    shiftaddress(y, (y-x)*sizeof(long));
+    shiftaddress(y, ((ulong)y-(ulong)x));
   pari_free(p); return y;
 }
 
@@ -1783,9 +1799,26 @@ sqrtr(GEN x) {
   if (s >= 0) return sqrtr_abs(x);
   retmkcomplex(gen_0, sqrtr_abs(x));
 }
+INLINE GEN
+cbrtr(GEN x) {
+  long s = signe(x);
+  GEN r;
+  if (s == 0) return real_0_bit(expo(x) / 3);
+  r = cbrtr_abs(x);
+  if (s < 0) togglesign(r);
+  return r;
+}
 /* x^(1/n) */
 INLINE GEN
-sqrtnr(GEN x, long n) { return mpexp(divrs(mplog(x), n)); }
+sqrtnr(GEN x, long n) {
+  switch(n)
+  {
+    case 1: return rcopy(x);
+    case 2: return sqrtr(x);
+    case 3: return cbrtr(x);
+  }
+  return mpexp(divrs(mplog(x), n));
+}
 
 /*******************************************************************/
 /*                                                                 */
@@ -2012,7 +2045,7 @@ zm_copy(GEN x) { return Flm_copy(x); }
 INLINE GEN
 zv_copy(GEN x) { return Flv_copy(x); }
 INLINE GEN
-row_zm(GEN x, long i) { return row_Flm(x,i); }
+zm_row(GEN x, long i) { return Flm_row(x,i); }
 
 INLINE GEN
 ZC_hnfrem(GEN x, GEN y) { return ZC_hnfremdiv(x,y,NULL); }
@@ -2053,6 +2086,13 @@ ZV_dvd(GEN x, GEN y)
 INLINE GEN
 Fq_red(GEN x, GEN T, GEN p)
 { return typ(x)==t_INT? Fp_red(x,p): FpXQ_red(x,T,p); }
+INLINE GEN
+Fq_to_FpXQ(GEN x, GEN T, GEN p /*unused*/)
+{
+  (void) p;
+  return typ(x)==t_INT ? scalarpol(x, get_FpX_var(T)): x;
+}
+
 INLINE GEN
 gener_Fq_local(GEN T, GEN p, GEN L)
 { return T? gener_FpXQ_local(T,p, L)
@@ -2385,6 +2425,10 @@ INLINE GEN ellinf(void) { return mkvec(gen_0); }
 /*                    ALGEBRAIC NUMBER THEORY                      */
 /*                                                                 */
 /*******************************************************************/
+INLINE GEN modpr_get_pr(GEN x)  { return gel(x,3); }
+INLINE GEN modpr_get_p(GEN x)  { return pr_get_p(modpr_get_pr(x)); }
+INLINE GEN modpr_get_T(GEN x)  { return lg(x) == 4? NULL: gel(x,4); }
+
 INLINE GEN pr_get_p(GEN pr)  { return gel(pr,1); }
 INLINE GEN pr_get_gen(GEN pr){ return gel(pr,2); }
 /* .[2] instead of itos works: e and f are small positive integers */
@@ -2421,6 +2465,8 @@ INLINE GEN
 nf_get_Tr(GEN nf) { return gmael(nf,5,4); }
 INLINE GEN
 nf_get_diff(GEN nf) { return gmael(nf,5,5); }
+INLINE GEN
+nf_get_ramified_primes(GEN nf) { return gmael(nf,5,8); }
 INLINE GEN
 nf_get_roots(GEN nf) { return gel(nf,6); }
 INLINE GEN
@@ -2540,6 +2586,12 @@ INLINE long
 rnf_get_nfdegree(GEN rnf) { return degpol(nf_get_pol(rnf_get_nf(rnf))); }
 INLINE long
 rnf_get_absdegree(GEN rnf) { return degpol(gmael(rnf,11,1)); }
+INLINE GEN
+rnf_get_idealdisc(GEN rnf) { return gmael(rnf,3,1); }
+INLINE GEN
+rnf_get_k(GEN rnf) { return gmael(rnf,11,3); }
+INLINE GEN
+rnf_get_alpha(GEN rnf) { return gmael(rnf, 11, 2); }
 INLINE GEN
 rnf_get_nf(GEN rnf) { return gel(rnf,10); }
 INLINE void

@@ -345,19 +345,21 @@ GEN
 adj(GEN x)
 {
   GEN y;
-  (void)caradj(x, MAXVARN, &y); return y;
+  (void)caradj(x, fetch_var(), &y);
+  (void)delete_var(); return y;
 }
 
 GEN
 adjsafe(GEN x)
 {
-  const long v = MAXVARN;
+  const long v = fetch_var();
   pari_sp av = avma;
-  GEN C;
+  GEN C, A;
   if (typ(x) != t_MAT) pari_err_TYPE("matadjoint",x);
   if (lg(x) < 3) return gcopy(x);
   C = charpoly(x,v);
-  return gerepileupto(av, RgM_adj_from_char(x, v, C));
+  A = RgM_adj_from_char(x, v, C);
+  (void)delete_var(); return gerepileupto(av, A);
 }
 
 GEN
@@ -380,13 +382,11 @@ matadjoint0(GEN x, long flag)
 /* The following section implement a mix of Ozello and Storjohann algorithms
 
 P. Ozello, doctoral thesis (in French):
-Calcul exact des formes de Jordan et de Frobenius d'une matrice
-Chapitre 2
+Calcul exact des formes de Jordan et de Frobenius d'une matrice, Chapitre 2
 http://tel.archives-ouvertes.fr/tel-00323705
 
 A. Storjohann,  Diss. ETH No. 13922
-Algorithms for Matrix Canonical Forms
-Chapter 9
+Algorithms for Matrix Canonical Forms, Chapter 9
 https://cs.uwaterloo.ca/~astorjoh/diss2up.pdf
 
 We use Storjohann Lemma 9.14 (step1, step2, step3) Ozello theorem 4,
@@ -395,29 +395,35 @@ and Storjohann Lemma 9.18
 
 /* Elementary transforms */
 
+/* M <- U^(-1) M U, U = E_{i,j}(k) => U^(-1) = E{i,j}(-k)
+ * P = U * P */
 static void
 transL(GEN M, GEN P, GEN k, long i, long j)
 {
   long l, n = lg(M)-1;
-  for(l=1; l<=n; l++)
+  for(l=1; l<=n; l++) /* M[,j]-=k*M[,i] */
     gcoeff(M,l,j) = gsub(gcoeff(M,l,j), gmul(gcoeff(M,l,i), k));
-  for(l=1; l<=n; l++)
+  for(l=1; l<=n; l++) /* M[i,]+=k*M[j,] */
     gcoeff(M,i,l) = gadd(gcoeff(M,i,l), gmul(gcoeff(M,j,l), k));
   if (P)
     for(l=1; l<=n; l++)
       gcoeff(P,i,l) = gadd(gcoeff(P,i,l), gmul(gcoeff(P,j,l), k));
 }
 
+/* j = a or b */
 static void
-transD(GEN M, GEN P, GEN k, long j)
+transD(GEN M, GEN P, long a, long b, long j)
 {
-  long l, n = lg(M)-1;
-  GEN ki = ginv(k);
+  long l, n;
+  GEN k = gcoeff(M,a,b), ki;
+
+  if (gcmp1(k)) return;
+  ki = ginv(k); n = lg(M)-1;
   for(l=1; l<=n; l++)
     if (l!=j)
     {
       gcoeff(M,l,j) = gmul(gcoeff(M,l,j), k);
-      gcoeff(M,j,l) = gmul(gcoeff(M,j,l), ki);
+      gcoeff(M,j,l) = (j==a && l==b)? gen_1: gmul(gcoeff(M,j,l), ki);
     }
   if (P)
     for(l=1; l<=n; l++)
@@ -487,7 +493,6 @@ gerepilemat2_inplace(pari_sp av, GEN M, GEN P)
 }
 
 /* Lemma 9.14 */
-
 static long
 weakfrobenius_step1(GEN M, GEN P, long j0)
 {
@@ -495,20 +500,21 @@ weakfrobenius_step1(GEN M, GEN P, long j0)
   long n = lg(M)-1, k, j;
   for (j = j0; j < n; ++j)
   {
-    if (gequal0(gcoeff(M, j + 1, j)))
+    if (gequal0(gcoeff(M, j+1, j)))
     {
       for (k = j+2; k <= n; ++k)
-        if (!gequal0(gcoeff(M, k, j)))
-          break;
-      if (k > n)
-        return j;
-      transS(M, P, k, j + 1);
+        if (!gequal0(gcoeff(M,k,j))) break;
+      if (k > n) return j;
+      transS(M, P, k, j+1);
     }
-    if (!gequal1(gcoeff(M, j + 1, j)))
-      transD(M, P, gcoeff(M, j + 1, j), j + 1);
+    transD(M, P, j+1, j, j+1);
+    /* Now M[j+1,j] = 1 */
     for (k = 1; k <= n; ++k)
-      if (k != j + 1 && !gequal0(gcoeff(M, k, j)))
-        transL(M, P, gneg(gcoeff(M, k, j)), k, j + 1);
+      if (k != j+1 && !gequal0(gcoeff(M,k,j))) /* zero M[k,j] */
+      {
+        transL(M, P, gneg(gcoeff(M,k,j)), k, j+1);
+        gcoeff(M,k,j) = gen_0; /* avoid approximate 0 */
+      }
     if (gc_needed(av,1))
     {
       if (DEBUGMEM > 1)
@@ -546,16 +552,14 @@ weakfrobenius_step3(GEN M, GEN P, long j0, long j)
   if (gequal0(gcoeff(M, j0, j+1)))
   {
     for (k=j+2; k<=n; k++)
-      if (!gequal0(gcoeff(M, j0, k)))
-        break;
+      if (!gequal0(gcoeff(M, j0, k))) break;
     if (k > n) return 0;
     transS(M, P, k, j+1);
   }
-  if (!gequal1(gcoeff(M, j0, j + 1)))
-    transD(M, P, gcoeff(M, j0, j + 1), j + 1);
+  transD(M, P, j0, j+1, j+1);
   for (i=j+2; i<=n; i++)
-      if (!gequal0(gcoeff(M, j0, i)))
-        transL(M, P, gcoeff(M, j0, i),j + 1, i);
+    if (!gequal0(gcoeff(M, j0, i)))
+      transL(M, P, gcoeff(M, j0, i),j+1, i);
   return 1;
 }
 
@@ -879,64 +883,113 @@ charpoly_bound(GEN M, GEN dM)
   d = dbllog2(s); avma = av; return ceil(d);
 }
 
+/* Return char_{M/d}(X) = d^(-n) char_M(dX) modulo p. Assume dp = d mod p. */
+static GEN
+QM_charpoly_Flx(GEN M, ulong dp, ulong p)
+{
+  pari_sp av = avma;
+  GEN H = Flm_charpoly_i(ZM_to_Flm(M,p), p);
+  if (dp) H = Flx_rescale(H, Fl_inv(dp,p), p);
+  return gerepileuptoleaf(av, H);
+}
+
+static int
+ZX_CRT(GEN *H, GEN Hp, GEN *q, ulong p, long bit)
+{
+  if (!*H)
+  {
+    *H = ZX_init_CRT(Hp, p, 0);
+    if (DEBUGLEVEL>5)
+      err_printf("charpoly mod %lu, bound = 2^%ld", p, expu(p));
+    if (expu(p) > bit) return 1;
+    *q = utoipos(p);
+  }
+  else
+  {
+    int stable = ZX_incremental_CRT(H, Hp, q,p);
+    if (DEBUGLEVEL>5)
+      err_printf("charpoly mod %lu (stable=%ld), bound = 2^%ld",
+                 p, stable, expi(*q));
+    if (stable && expi(*q) > bit) return 1;
+  }
+  return 0;
+}
+/* Let V = V1 \oplus V2 Q-vector spaces and f in End(V) stabilizing the Vi
+ * Let M, M2 be square QM representing f, f|V2.
+ * Return H := char(f|V1) = char(f) / char(f|V2) assuming H is in Z[X]
+ * and log 2 |H|oo <= bit */
+GEN
+QM_charpoly_ZX2_bound(GEN M, GEN M2, long bit)
+{
+  long n = lg(M)-1, n2 = lg(M2)-1;
+  GEN q = NULL, H1 = NULL, dM, dM2;
+  forprime_t S;
+  ulong p;
+  if (n == n2) return pol_1(0);
+  if (!n2) return QM_charpoly_ZX_bound(M, bit);
+  M = Q_remove_denom(M,&dM);
+  M2= Q_remove_denom(M2,&dM2);
+
+  if (DEBUGLEVEL>5) err_printf("QM_charpoly_ZX2_bound: bit-bound 2^%ld\n", bit);
+  init_modular(&S);
+  while ((p = u_forprime_next(&S)))
+  {
+    ulong dMp = 0, dM2p = 0;
+    GEN Hp, H1p, H2p;
+    if (dM && !(dMp = umodiu(dM, p))) continue;
+    if (dM2 && !(dM2p = umodiu(dM2, p))) continue;
+    Hp  = QM_charpoly_Flx(M,  dMp,  p);
+    H2p = QM_charpoly_Flx(M2, dM2p, p);
+    H1p = Flx_div(Hp, H2p, p);
+    if (ZX_CRT(&H1, H1p, &q,p, bit)) break;
+  }
+  if (!p) pari_err_OVERFLOW("charpoly [ran out of primes]");
+  return H1;
+}
+
 /* Assume M a square ZM, dM integer. Return charpoly(M / dM) in Z[X] */
 static GEN
-QM_charpoly_ZX_i(GEN M, GEN dM)
+QM_charpoly_ZX_i(GEN M, GEN dM, long bit)
 {
-  pari_timer T;
-  long l = lg(M), n = l-1, bit;
-  GEN q = NULL, H = NULL, Hp;
+  long n = lg(M)-1;
+  GEN q = NULL, H = NULL;
   forprime_t S;
   ulong p;
   if (!n) return pol_1(0);
 
-  bit = (long)charpoly_bound(M, dM) + 1;
-  if (DEBUGLEVEL>5) {
-    err_printf("ZM_charpoly: bit-bound 2^%ld\n", bit);
-    timer_start(&T);
-  }
+  if (bit < 0) bit = (long)charpoly_bound(M, dM) + 1;
+  if (DEBUGLEVEL>5) err_printf("ZM_charpoly: bit-bound 2^%ld\n", bit);
   init_modular(&S);
   while ((p = u_forprime_next(&S)))
   {
-    pari_sp av = avma;
     ulong dMp = 0;
+    GEN Hp;
     if (dM && !(dMp = umodiu(dM, p))) continue;
-    Hp = Flm_charpoly_i(ZM_to_Flm(M, p), p);
-    /* char_{M/d}(X) = d^(-n) char_M(dX) */
-    if (dM) Hp = Flx_rescale(Hp, Fl_inv(dMp,p), p);
-    Hp = gerepileuptoleaf(av, Hp);
-    if (!H)
-    {
-      H = ZX_init_CRT(Hp, p, 0);
-      if (DEBUGLEVEL>5)
-        timer_printf(&T, "charpoly mod %lu, bound = 2^%ld", p, expu(p));
-      if (expu(p) > bit) break;
-      q = utoipos(p);
-    }
-    else
-    {
-      int stable = ZX_incremental_CRT(&H, Hp, &q,p);
-      if (DEBUGLEVEL>5)
-        timer_printf(&T, "charpoly mod %lu (stable=%ld), bound = 2^%ld",
-                     p, stable, expi(q));
-      if (stable && expi(q) > bit) break;
-    }
+    Hp = QM_charpoly_Flx(M, dMp, p);
+    if (ZX_CRT(&H, Hp, &q,p, bit)) break;
   }
   if (!p) pari_err_OVERFLOW("charpoly [ran out of primes]");
   return H;
+}
+GEN
+QM_charpoly_ZX_bound(GEN M, long bit)
+{
+  pari_sp av = avma;
+  GEN dM; M = Q_remove_denom(M, &dM);
+  return gerepilecopy(av, QM_charpoly_ZX_i(M, dM, bit));
 }
 GEN
 QM_charpoly_ZX(GEN M)
 {
   pari_sp av = avma;
   GEN dM; M = Q_remove_denom(M, &dM);
-  return gerepilecopy(av, QM_charpoly_ZX_i(M, dM));
+  return gerepilecopy(av, QM_charpoly_ZX_i(M, dM, -1));
 }
 GEN
 ZM_charpoly(GEN M)
 {
   pari_sp av = avma;
-  return gerepilecopy(av, QM_charpoly_ZX_i(M, NULL));
+  return gerepilecopy(av, QM_charpoly_ZX_i(M, NULL, -1));
 }
 
 /*******************************************************************/
@@ -1704,7 +1757,7 @@ QM_minors_coprime(GEN x, GEN D)
       long lM = lg(M);
       if (lM==1) break;
 
-      M = FpM_center(M, p, pov2);
+      FpM_center_inplace(M, p, pov2);
       N = ZM_Z_divexact(ZM_mul(x,M), p);
       for (j=1; j<lM; j++)
       {

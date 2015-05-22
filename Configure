@@ -87,8 +87,6 @@ exec 5>> $config_log
 ####################### CONFIGURE - LIBRARIES ###############################
 # Looking for libraries: gmp, X11, fltk, Qt, readline
 echo Checking for optional libraries and headers...
-. ./get_include_path
-. ./get_libpth
 # $_gmp_list
 if test "$kernlvl1" = "gmp"; then
   . ./get_gmp
@@ -159,6 +157,7 @@ for variable in\
   ln_s make_sh\
   sizeof_long doubleformat\
   thread_engine enable_tls\
+  runtime_perl\
   $_tools_list\
   $_test_list\
   $_install_list\
@@ -186,8 +185,8 @@ if test -n "$tune"; then
   echo "Building and tuning PARI (this may take a while)"
   echo
   (cd $objdir; rm -f parilvl1.h pariinl.h;\
-  $MAKE tune; tune -t > tune.h.new && mv tune.h.new tune.h && cat tune.h;\
-  rm -f parilvl1.h pariinl.h; $MAKE gp)
+  $MAKE tune && tune -t > tune.h.new && mv tune.h.new tune.h && cat tune.h\
+    && rm -f parilvl1.h pariinl.h && $MAKE gp)
 else
   echo $n "Shall we try to build pari $version.$patch ($status) now (y/n)? $c"
   dflt=n; rep='y n'; . $config_dir/myread

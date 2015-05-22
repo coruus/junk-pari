@@ -730,23 +730,27 @@ absrtostr(GEN x, int sp, char FORMAT, long wanted_dec)
   }
 
   /* '.', " E", exponent, trailing \0 */
-  buf0 = buf = stack_malloc( ls + 1+2+MAX_EXPO_LEN+1 );
   point = ls - beta; /* position of . in s; < 0 or > 0 */
   if (beta <= 0 || format == 'e' || (format == 'g' && point-1 < -4))
   { /* e format */
+    buf0 = buf = stack_malloc(ls+1+2+MAX_EXPO_LEN + 1);
     wr_dec(buf, s, 1); buf += ls + 1;
     if (sp) *buf++ = ' ';
     *buf++ = exp_char;
     sprintf(buf, "%ld", point-1);
-  } else { /* f format */
-    if (point > 0) /* write integer_part.fractional_part */
-      wr_dec(buf, s, point); /* point < ls since beta > 0 */
-    else { /* point <= 0, write fractional part */
-      *buf++ = '0';
-      *buf++ = '.';
-      buf = zeros(buf, -point);
-      strcpy(buf, s);
-    }
+  }
+  else if (point > 0) /* f format, write integer_part.fractional_part */
+  {
+    buf0 = buf = stack_malloc(ls+1 + 1);
+    wr_dec(buf, s, point); /* point < ls since beta > 0 */
+  }
+  else /* f format, point <= 0, write fractional part */
+  {
+    buf0 = buf = stack_malloc(2-point+ls + 1);
+    *buf++ = '0';
+    *buf++ = '.';
+    buf = zeros(buf, -point);
+    strcpy(buf, s);
   }
   return buf0;
 }
@@ -1897,7 +1901,8 @@ str_absint(outString *S, GEN x)
 #define putsigne_nosp(S, x) str_putc(S, (x>0)? '+' : '-')
 #define putsigne(S, x) str_puts(S, (x>0)? " + " : " - ")
 #define sp_sign_sp(T,S, x) ((T)->sp? putsigne(S,x): putsigne_nosp(S,x))
-#define comma_sp(T,S)     ((T)->sp? str_puts(S, ", "): str_putc(S, ','))
+#define semicolon_sp(T,S)  ((T)->sp? str_puts(S, "; "): str_putc(S, ';'))
+#define comma_sp(T,S)      ((T)->sp? str_puts(S, ", "): str_putc(S, ','))
 
 /* print e to S (more efficient than sprintf) */
 static void
@@ -2058,11 +2063,12 @@ dbg(GEN x, long nb, long bl)
                vsigne(x), varn(x), lg(x)-2, valp(x));
   else if (tx == t_LIST)
   {
-    pari_printf("(lmax=%ld):", list_nmax(x));
+    pari_printf("(subtyp=%ld,lmax=%ld):", list_typ(x), list_nmax(x));
     x = list_data(x); lx = x? lg(x): 1;
     tx = t_VEC; /* print list_data as vec */
   } else if (tx == t_CLOSURE)
-    pari_printf("(arity=%ld):", closure_arity(x));
+    pari_printf("(arity=%ld%s):", closure_arity(x),
+                                  closure_is_variadic(x)?"+":"");
   for (i=1; i<lx; i++) dbg_word(x[i]);
   bl+=2; pari_putc('\n');
   switch(tx)
@@ -2169,11 +2175,12 @@ void
 dbgGEN(GEN x, long nb) { dbg(x,nb,0); }
 
 static void
-print_entree(entree *ep, long hash)
+print_entree(entree *ep)
 {
   pari_printf(" %s ",ep->name); dbg_addr((ulong)ep);
-  pari_printf(":\n   hash = %3ld, menu = %2ld, code = %-10s",
-            hash, ep->menu, ep->code? ep->code: "NULL");
+  pari_printf(": hash = %ld [%ld]\n", ep->hash % functions_tblsz, ep->hash);
+  pari_printf("   menu = %2ld, code = %-10s",
+              ep->menu, ep->code? ep->code: "NULL");
   if (ep->next)
   {
     pari_printf("next = %s ",(ep->next)->name);
@@ -2208,16 +2215,15 @@ print_functions_hash(const char *s)
     for(; n<=m; n++)
     {
       pari_printf("*** hashcode = %lu\n",n);
-      for (ep=functions_hash[n]; ep; ep=ep->next)
-        print_entree(ep,n);
+      for (ep=functions_hash[n]; ep; ep=ep->next) print_entree(ep);
     }
     return;
   }
   if (is_keyword_char((int)*s))
   {
-    ep = is_entry_intern(s,functions_hash,&n);
+    ep = is_entry(s);
     if (!ep) pari_err(e_MISC,"no such function");
-    print_entree(ep,n); return;
+    print_entree(ep); return;
   }
   if (*s=='-')
   {
@@ -2234,11 +2240,7 @@ print_functions_hash(const char *s)
   for (n=0; n<functions_tblsz; n++)
   {
     long cnt = 0;
-    for (ep=functions_hash[n]; ep; ep=ep->next)
-    {
-      print_entree(ep,n);
-      cnt++;
-    }
+    for (ep=functions_hash[n]; ep; ep=ep->next) { print_entree(ep); cnt++; }
     Total += cnt;
     if (cnt > Max) Max = cnt;
   }
@@ -2254,10 +2256,8 @@ static const char *
 get_var(long v, char *buf)
 {
   entree *ep = varentries[v];
-
   if (ep) return (char*)ep->name;
-  if (v==MAXVARN) return "#";
-  sprintf(buf,"#<%d>",(int)v); return buf;
+  sprintf(buf,"t%d",(int)v); return buf;
 }
 
 static void
@@ -2344,8 +2344,6 @@ dbg_pari_heap(void)
   avma = av;
 }
 
-#define isnull_for_pol(g)  ((typ(g)==t_INTMOD)? !signe(gel(g,2)): isnull(g))
-
 /* is to be printed as '0' */
 static long
 isnull(GEN g)
@@ -2363,14 +2361,23 @@ isnull(GEN g)
       return isnull(gel(g,2)) && isnull(gel(g,3));
     case t_FRAC: case t_RFRAC:
       return isnull(gel(g,1));
-    case t_POLMOD:
-      return isnull(gel(g,2));
     case t_POL:
       for (i=lg(g)-1; i>1; i--)
         if (!isnull(gel(g,i))) return 0;
       return 1;
   }
   return 0;
+}
+/* 0 coeff to be omitted in t_POL ? */
+static int
+isnull_for_pol(GEN g)
+{
+  switch(typ(g))
+  {
+    case t_INTMOD: return !signe(gel(g,2));
+    case t_POLMOD: return isnull(gel(g,2));
+    default:       return isnull(g);
+  }
 }
 
 /* return 1 or -1 if g is 1 or -1, 0 otherwise*/
@@ -2643,12 +2650,35 @@ print_0_or_pm1(GEN g, outString *S, int addsign)
   }
   return 0;
 }
+
+static void
+print_precontext(GEN g, outString *S, long tex)
+{
+  if (lg(g)<8 || lg(gel(g,7))==1) return;
+  else
+  {
+    long i, n  = closure_arity(g);
+    str_puts(S,"(");
+    for(i=1; i<=n; i++)
+    {
+      str_puts(S,"v");
+      if (tex) str_puts(S,"_{");
+      str_ulong(S,i);
+      if (tex) str_puts(S,"}");
+      if (i < n) str_puts(S,",");
+    }
+    str_puts(S,")->");
+  }
+}
+
 static void
 print_context(GEN g, pariout_t *T, outString *S, long tex)
 {
-  if (lg(g)>=8 && lg(gel(g,7))>1 && lg(gmael(g,5,3))>=2)
+  GEN str = closure_get_text(g);
+  if (lg(g)<8 || lg(gel(g,7))==1) return;
+  if (typ(str)==t_VEC && lg(gel(closure_get_dbg(g),3)) >= 2)
   {
-    GEN v = gel(g,7), d = gmael3(g,5,3,1);
+    GEN v = closure_get_frame(g), d = gmael(closure_get_dbg(g),3,1);
     long i, l = lg(v), n=0;
     for(i=1; i<l; i++)
       if (gel(d,i))
@@ -2666,6 +2696,27 @@ print_context(GEN g, pariout_t *T, outString *S, long tex)
           str_putc(S,',');
       }
     str_puts(S,");");
+  }
+  else
+  {
+    GEN v = closure_get_frame(g);
+    long i, l = lg(v), n  = closure_arity(g);
+    str_puts(S,"(");
+    for(i=1; i<=n; i++)
+    {
+      str_puts(S,"v");
+      if (tex) str_puts(S,"_{");
+      str_ulong(S,i);
+      if (tex) str_puts(S,"}");
+      str_puts(S,",");
+    }
+    for(i=1; i<l; i++)
+    {
+      if (tex) texi(gel(v,i),T,S); else bruti(gel(v,i),T,S);
+      if (i<l-1)
+        str_putc(S,',');
+    }
+    str_puts(S,")");
   }
 }
 
@@ -2801,16 +2852,29 @@ bruti_intern(GEN g, pariout_t *T, outString *S, int addsign)
     case t_VECSMALL: wr_vecsmall(T,S,g); break;
 
     case t_LIST:
-      str_puts(S, "List([");
-      g = list_data(g);
-      l = g? lg(g): 1;
-      for (i=1; i<l; i++)
+      switch (list_typ(g))
       {
-        bruti(gel(g,i),T,S);
-        if (i<l-1) comma_sp(T,S);
+      case t_LIST_RAW:
+        str_puts(S, "List([");
+        g = list_data(g);
+        l = g? lg(g): 1;
+        for (i=1; i<l; i++)
+        {
+          bruti(gel(g,i),T,S);
+          if (i<l-1) comma_sp(T,S);
+        }
+        str_puts(S, "])"); break;
+      case t_LIST_MAP:
+        {
+          pari_sp av;
+          str_puts(S, "Map(");
+          av = avma;
+          bruti(maptomat_shallow(g),T,S);
+          avma = av;
+          str_puts(S, ")"); break;
+        }
       }
-      str_puts(S, "])"); break;
-
+      break;
     case t_STR:
       quote_string(S, GSTR(g)); break;
     case t_ERROR:
@@ -2825,7 +2889,11 @@ bruti_intern(GEN g, pariout_t *T, outString *S, int addsign)
       {
         GEN str = closure_get_text(g);
         if (typ(str)==t_STR)
+        {
+          print_precontext(g, S, 0);
           str_puts(S, GSTR(str));
+          print_context(g, T, S, 0);
+        }
         else
         {
           str_putc(S,'(');   str_puts(S,GSTR(gel(str,1)));
@@ -2873,7 +2941,7 @@ bruti_intern(GEN g, pariout_t *T, outString *S, int addsign)
           print(gcoeff(g,i,j),T,S);
           if (j<r-1) comma_sp(T,S);
         }
-        if (i<l-1) { str_putc(S, ';'); if (T->sp) str_putc(S, ' '); }
+        if (i<l-1) semicolon_sp(T,S);
       }
       str_putc(S, ']'); if (l==2) str_putc(S, ')');
       break;
@@ -3064,15 +3132,26 @@ texi_sign(GEN g, pariout_t *T, outString *S, int addsign)
       str_puts(S, "\\cr}\n"); break;
 
     case t_LIST:
-      str_puts(S, "\\pmatrix{ ");
-      g = list_data(g);
-      l = g? lg(g): 1;
-      for (i=1; i<l; i++)
+      switch(list_typ(g))
       {
-        texi(gel(g,i),T,S); if (i < l-1) str_putc(S, '&');
+      case t_LIST_RAW:
+        str_puts(S, "\\pmatrix{ ");
+        g = list_data(g);
+        l = g? lg(g): 1;
+        for (i=1; i<l; i++)
+        {
+          texi(gel(g,i),T,S); if (i < l-1) str_putc(S, '&');
+        }
+        str_puts(S, "\\cr}\n"); break;
+      case t_LIST_MAP:
+        {
+          pari_sp av = avma;
+          texi(maptomat_shallow(g),T,S);
+          avma = av;
+          break;
+        }
       }
-      str_puts(S, "\\cr}\n"); break;
-
+      break;
     case t_COL:
       str_puts(S, "\\pmatrix{ "); l = lg(g);
       for (i=1; i<l; i++)
@@ -3098,7 +3177,11 @@ texi_sign(GEN g, pariout_t *T, outString *S, int addsign)
       {
         GEN str = closure_get_text(g);
         if (typ(str)==t_STR)
+        {
+          print_precontext(g, S, 1);
           str_puts(S, GSTR(str));
+          print_context(g, T, S ,1);
+        }
         else
         {
           str_putc(S,'(');          str_puts(S,GSTR(gel(str,1)));
@@ -4000,7 +4083,8 @@ switchin(const char *name)
     forpath_t T;
     forpath_init(&T, GP_DATA->path, s);
     while ( (t = forpath_next(&T)) )
-      if ((f = try_name(t))) return f;
+      if ((f = try_name(t))) { pari_free(s); return f; }
+    pari_free(s);
   }
   pari_err_FILE("input file",name);
   return NULL; /*not reached*/
@@ -4236,11 +4320,11 @@ readobj(FILE *f, int *ptc, hashtable *H)
         x = rdGEN(f);
         if (H) gen_relink(x, H);
         err_printf("setting %s\n",s);
-        changevalue(fetch_named_var(s), x);
+        changevalue(varentries[fetch_user_var(s)], x);
       }
       else
       {
-        pari_var_create(fetch_entry(s, strlen(s)));
+        pari_var_create(fetch_entry(s));
         x = gnil;
       }
       break;
@@ -4896,9 +4980,10 @@ gp_dlopen(const char *name, int flag)
     forpath_init(&T, GP_DATA->sopath, s);
     while ( (t = forpath_next(&T)) )
     {
-      if ( (handle = try_dlopen(t,flag)) ) return handle;
+      if ( (handle = try_dlopen(t,flag)) ) { pari_free(s); return handle; }
       (void)dlerror(); /* clear error message */
     }
+    pari_free(s);
   }
   return NULL;
 }
@@ -4923,7 +5008,6 @@ install0(const char *name, const char *lib)
 }
 #else
 #  ifdef _WIN32
-#  include <windows.h>
 static HMODULE
 try_LoadLibrary(const char *s)
 { void *h = LoadLibrary(s); pari_free((void*)s); return h; }
@@ -4944,7 +5028,8 @@ gp_LoadLibrary(const char *name)
     char *t;
     forpath_init(&T, GP_DATA->sopath, s);
     while ( (t = forpath_next(&T)) )
-      if ( (handle = try_LoadLibrary(t)) ) return handle;
+      if ( (handle = try_LoadLibrary(t)) ) { pari_free(s); return handle; }
+    pari_free(s);
   }
   return NULL;
 }

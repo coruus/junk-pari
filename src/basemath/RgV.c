@@ -49,23 +49,25 @@ RgM_zc_mul_i(GEN x, GEN y, long c, long l)
 {
   long i, j;
   pari_sp av;
-  GEN z = cgetg(l,t_COL), s;
+  GEN z = cgetg(l,t_COL);
 
   for (i=1; i<l; i++)
   {
-    av = avma; s = gmulgs(gcoeff(x,i,1),y[1]);
-    for (j=2; j<c; j++)
+    GEN s = NULL;
+    av = avma;
+    for (j=1; j<c; j++)
     {
       long t = y[j];
+      if (!t) continue;
+      if (!s) { s = gmulgs(gcoeff(x,i,j),t); continue; }
       switch(t)
       {
-        case  0: break;
         case  1: s = gadd(s, gcoeff(x,i,j)); break;
         case -1: s = gsub(s, gcoeff(x,i,j)); break;
         default: s = gadd(s, gmulgs(gcoeff(x,i,j), t)); break;
       }
     }
-    gel(z,i) = gerepileupto(av,s);
+    gel(z,i) = gerepileupto(av,s? s: gen_0);
   }
   return z;
 }
@@ -180,6 +182,35 @@ RgV_sumpart2(GEN v, long m, long n)
   if (n < m) return gen_0;
   p = gel(v,m); for (i=m+1; i<=n; i++) p = gadd(p, gel(v,i));
   return p;
+}
+GEN
+RgM_sumcol(GEN A)
+{
+  long i,j,m,l = lg(A);
+  GEN v;
+
+  if (l == 1) return cgetg(1,t_MAT);
+  if (l == 2) return gcopy(gel(A,1));
+  m = lgcols(A);
+  v = cgetg(m, t_COL);
+  for (i = 1; i < m; i++)
+  {
+    pari_sp av = avma;
+    GEN s = gcoeff(A,i,1);
+    for (j = 2; j < l; j++) s = gadd(s, gcoeff(A,i,j));
+    gel(v, i) = gerepileupto(av, s);
+  }
+  return v;
+}
+
+static GEN
+_gmul(void *data, GEN x, GEN y)
+{ (void)data; return gmul(x,y); }
+
+GEN
+RgV_prod(GEN x)
+{
+  return gen_product(x, NULL, _gmul);
 }
 
 /*                    ADDITION SCALAR + MATRIX                     */
@@ -495,6 +526,8 @@ RgM_mul(GEN x, GEN y)
   lx = lg(x);
   if (lx != lgcols(y)) pari_err_OP("operation 'RgM_mul'", x,y);
   if (lx == 1) return zeromat(0,ly-1);
+  if (RgM_is_ZM(x) && RgM_is_ZM(y))
+    return ZM_mul(x, y);
   if (is_modular_mul(x,y,&z)) return gerepileupto(av, z);
   if (RgM_is_FFM(x, &ffx) && RgM_is_FFM(y, &ffy)) {
     if (!FF_samefield(ffx, ffy))
@@ -594,10 +627,12 @@ RgM_sqr(GEN x)
 {
   pari_sp av = avma;
   long j, lx = lg(x);
-  GEN z;
+  GEN z, ffx = NULL;
   if (lx == 1) return cgetg(1, t_MAT);
   if (lx != lgcols(x)) pari_err_OP("operation 'RgM_mul'", x,x);
+  if (RgM_is_ZM(x))         return ZM_sqr(x);
   if (is_modular_sqr(x,&z)) return gerepileupto(av, z);
+  if (RgM_is_FFM(x, &ffx))  return FFM_mul(x, x, ffx);
   z = cgetg(lx, t_MAT);
   for (j=1; j<lx; j++) gel(z,j) = RgM_RgC_mul_i(x, gel(x,j), lx, lx);
   return z;
@@ -797,6 +832,20 @@ RgM_isidentity(GEN x)
       if (!gequal0(gel(c,i++))) return 0;
   }
   return 1;
+}
+
+long
+RgC_is_ei(GEN x)
+{
+  long i, j = 0, l = lg(x);
+  for (i = 1; i < l; i++)
+  {
+    GEN c = gel(x,i);
+    if (gequal0(c)) continue;
+    if (!gequal1(c) || j) return 0;
+    j = i;
+  }
+  return j;
 }
 
 int

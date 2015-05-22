@@ -53,7 +53,8 @@ fact_from_factors(GEN D, GEN P, long flag)
   if (!is_pm1(D))
   {
     long k = Z_isanypower(D, &D);
-    gel(Q,iq) = D; gel(E,iq) = utoipos(k ? k: 1);
+    if (!k) k = 1;
+    gel(Q,iq) = D; gel(E,iq) = utoipos(k); iq++;
   }
   setlg(Q,iq);
   setlg(E,iq); return mkmat2(Q,E);
@@ -2068,23 +2069,18 @@ get_norm(norm_S *S, GEN a)
 static void
 init_norm(norm_S *S, GEN nf, GEN p)
 {
-  GEN T = nf_get_pol(nf);
-  long N = degpol(T);
+  GEN T = nf_get_pol(nf), M = nf_get_M(nf);
+  long N = degpol(T), ex = gexpo(M) + gexpo(mului(8 * N, p));
 
-  S->r1 = 0;   /* -Wall */
-  S->M = NULL; /* -Wall */
-  S->D = NULL; /* -Wall */
-  S->w = NULL; /* -Wall */
-  S->T = NULL; /* -Wall */
-  if (typ(gel(nf,5)) == t_VEC) /* beware dummy nf from rnf/makenfabs */
-  {
-    GEN M = nf_get_M(nf);
-    long ex = gexpo(M) + gexpo(mului(8 * N, p));
-    /* enough prec to use embed_norm */
-    S->r1 = nf_get_r1(nf);
-    if (N * ex <= prec2nbits(gprecision(M))) S->M = M;
+  S->r1 = nf_get_r1(nf);
+  if (N * ex <= prec2nbits(gprecision(M)) - 20)
+  { /* enough prec to use embed_norm */
+    S->M = M;
+    S->D = NULL;
+    S->w = NULL;
+    S->T = NULL;
   }
-  if (!S->M)
+  else
   {
     GEN D, w = Q_remove_denom(nf_get_zk(nf), &D), Dp = sqri(p);
     long i;
@@ -2097,6 +2093,7 @@ init_norm(norm_S *S, GEN nf, GEN p)
       gel(w, 1) = remii(w1, Dp);
     }
     for (i=2; i<=N; i++) gel(w,i) = FpX_red(gel(w,i), Dp);
+    S->M = NULL;
     S->D = D;
     S->w = w;
     S->T = T;
@@ -2317,12 +2314,13 @@ primedec_end(GEN nf, GEN L, GEN p)
   return Lpr;
 }
 
-/* prime ideal decomposition of p */
+/* prime ideal decomposition of p; if flim!=0, restrict to f(P,p) <= flim */
 static GEN
-primedec_aux(GEN nf, GEN p)
+primedec_aux(GEN nf, GEN p, long flim)
 {
-  GEN E, F, L, Ip, H, phi, mat1, f, g, h, p1, UN, T = nf_get_pol(nf);
+  GEN E, F, L, Ip, phi, f, g, h, p1, UN, T = nf_get_pol(nf);
   long i, k, c, iL, N;
+  int kummer;
 
   F = FpX_factor(T, p);
   E = gel(F,2);
@@ -2333,10 +2331,15 @@ primedec_aux(GEN nf, GEN p)
   {
     L = cgetg(k,t_VEC);
     for (i=1; i<k; i++)
-      gel(L,i) = primedec_apply_kummer(nf,gel(F,i), E[i],p);
+    {
+      GEN t = gel(F,i);
+      if (flim && degpol(t) > flim) { setlg(L, i); break; }
+      gel(L,i) = primedec_apply_kummer(nf, t, E[i],p);
+    }
     return L;
   }
 
+  kummer = 0;
   g = FpXV_prod(F, p);
   h = FpX_div(T,g,p);
   f = FpX_red(ZX_Z_divexact(ZX_sub(ZX_mul(g,h), T), p), p);
@@ -2345,7 +2348,11 @@ primedec_aux(GEN nf, GEN p)
   L = cgetg(N+1,t_VEC); iL = 1;
   for (i=1; i<k; i++)
     if (E[i] == 1 || signe(FpX_rem(f,gel(F,i),p)))
-      gel(L,iL++) = primedec_apply_kummer(nf,gel(F,i), E[i],p);
+    {
+      GEN t = gel(F,i);
+      kummer = 1;
+      gel(L,iL++) = primedec_apply_kummer(nf, t, E[i],p);
+    }
     else /* F[i] | (f,g,h), happens at least once by Dedekind criterion */
       E[i] = 0;
 
@@ -2354,7 +2361,7 @@ primedec_aux(GEN nf, GEN p)
 
   /* split etale algebra Z_K / (p,Ip) */
   h = cgetg(N+1,t_VEC);
-  if (iL > 1)
+  if (kummer)
   { /* split off Kummer factors */
     GEN mulbeta, beta = NULL;
     for (i=1; i<k; i++)
@@ -2372,22 +2379,21 @@ primedec_aux(GEN nf, GEN p)
 
   UN = col_ei(N, 1);
   for (c=1; c; c--)
-  { /* Let A:= (Z_K/p) / Ip; try to split A2 := A / Im H ~ Im M2
+  { /* Let A:= (Z_K/p) / Ip etale; split A2 := A / Im H ~ Im M2
        H * ? + M2 * Mi2 = Id_N ==> M2 * Mi2 projector A --> A2 */
-    GEN M, Mi, M2, Mi2, phi2;
-    long dim;
+    GEN M, Mi, M2, Mi2, phi2, mat1, H = gel(h,c); /* maximal rank */
+    long dim, r = lg(H)-1;
 
-    H = gel(h,c); k = lg(H)-1;
     M   = FpM_suppl(shallowconcat(H,UN), p);
     Mi  = FpM_inv(M, p);
-    M2  = vecslice(M, k+1,N); /* M = (H|M2) invertible */
-    Mi2 = rowslice(Mi,k+1,N);
+    M2  = vecslice(M, r+1,N); /* M = (H|M2) invertible */
+    Mi2 = rowslice(Mi,r+1,N);
     /* FIXME: FpM_mul(,M2) could be done with vecpermute */
     phi2 = FpM_mul(Mi2, FpM_mul(phi,M2, p), p);
     mat1 = FpM_ker(phi2, p);
     dim = lg(mat1)-1; /* A2 product of 'dim' fields */
     if (dim > 1)
-    { /* phi2 v = 0 <==> a = M2 v in Ker phi */
+    { /* phi2 v = 0 => a = M2 v in Ker phi, a not in Fp.1 + H */
       GEN R, a, mula, mul2, v = gel(mat1,2);
       long n;
 
@@ -2396,31 +2402,49 @@ primedec_aux(GEN nf, GEN p)
       mula = FpM_red(mula, p);
       mul2 = FpM_mul(Mi2, FpM_mul(mula,M2, p), p);
       R = FpX_roots(pol_min(mul2,p), p); /* totally split mod p */
-
       n = lg(R)-1;
       for (i=1; i<=n; i++)
       {
-        GEN r = gel(R,i), I = RgM_Rg_add_shallow(mula, negi(r));
+        GEN I = RgM_Rg_sub_shallow(mula, gel(R,i));
         gel(h,c++) = FpM_image(shallowconcat(H, I), p);
       }
       if (n == dim)
-        for (i=1; i<=n; i++) { H = gel(h,--c); gel(L,iL++) = H; }
+        for (i=1; i<=n; i++) gel(L,iL++) = gel(h,--c);
     }
-    else /* A2 field ==> H maximal, f = N-k = dim(A2) */
+    else /* A2 field ==> H maximal, f = N-r = dim(A2) */
       gel(L,iL++) = H;
   }
   setlg(L, iL);
-  return primedec_end(nf, L, p);
+  L = primedec_end(nf, L, p);
+  if (flim)
+  {
+    long k = 1;
+    for(i = 1; i < iL; i++)
+    {
+      GEN P = gel(L,i);
+      if (pr_get_f(P) <= flim) gel(L,k++) = P;
+    }
+    setlg(L,k);
+  }
+  return L;
 }
 
 GEN
-idealprimedec(GEN nf, GEN p)
+idealprimedec_limit_f(GEN nf, GEN p, long f)
 {
   pari_sp av = avma;
+  GEN v;
   if (typ(p) != t_INT) pari_err_TYPE("idealprimedec",p);
-  return gerepileupto(av, gen_sort(primedec_aux(checknf(nf),p),
-                                   (void*)&cmp_prime_over_p, &cmp_nodata));
+  v = primedec_aux(checknf(nf), p, f);
+  v = gen_sort(v, (void*)&cmp_prime_over_p, &cmp_nodata);
+  return gerepileupto(av,v);
 }
+GEN
+idealprimedec_limit_norm(GEN nf, GEN p, GEN B)
+{ return idealprimedec_limit_f(nf, p, logint(B,p,NULL)-1); }
+GEN
+idealprimedec(GEN nf, GEN p)
+{ return idealprimedec_limit_f(nf, p, 0); }
 
 /* return [Fp[x]: Fp] */
 static long
@@ -2485,8 +2509,6 @@ anti_uniformizer2(GEN nf, GEN pr)
 
 #define mpr_TAU 1
 #define mpr_FFP 2
-#define mpr_PR  3
-#define mpr_T   4
 #define mpr_NFP 5
 #define SMALLMODPR 4
 #define LARGEMODPR 6
@@ -2560,7 +2582,7 @@ modprinit(GEN nf, GEN pr, int zk)
     res = cgetg(SMALLMODPR, t_COL);
     gel(res,mpr_TAU) = tau;
     gel(res,mpr_FFP) = dim1proj(prh);
-    gel(res,mpr_PR) = pr; return gerepilecopy(av, res);
+    gel(res,3) = pr; return gerepilecopy(av, res);
   }
 
   c = cgetg(f+1, t_VECSMALL);
@@ -2589,8 +2611,8 @@ modprinit(GEN nf, GEN pr, int zk)
     res = cgetg(SMALLMODPR+1, t_COL);
     gel(res,mpr_TAU) = tau;
     gel(res,mpr_FFP) = ffproj;
-    gel(res,mpr_PR) = pr;
-    gel(res,mpr_T) = T; return gerepilecopy(av, res);
+    gel(res,3) = pr;
+    gel(res,4) = T; return gerepilecopy(av, res);
   }
 
   if (uisprime(f))
@@ -2646,8 +2668,8 @@ modprinit(GEN nf, GEN pr, int zk)
   res = cgetg(LARGEMODPR, t_COL);
   gel(res,mpr_TAU) = tau;
   gel(res,mpr_FFP) = ffproj;
-  gel(res,mpr_PR) = pr;
-  gel(res,mpr_T) = T;
+  gel(res,3) = pr;
+  gel(res,4) = T;
   gel(res,mpr_NFP) = nfproj; return gerepilecopy(av, res);
 }
 
@@ -2664,8 +2686,12 @@ void
 checkmodpr(GEN x)
 {
   if (!ok_modpr(x)) pari_err_TYPE("checkmodpr [use nfmodprinit]", x);
-  checkprid(gel(x,mpr_PR));
+  checkprid(modpr_get_pr(x));
 }
+GEN
+get_modpr(GEN x)
+{ return ok_modpr(x)? x: NULL; }
+
 static int
 is_prid(GEN x)
 {
@@ -2682,7 +2708,7 @@ get_prid(GEN x)
   if (lx == 3 && typ(x) == t_VEC) x = gel(x,1);
   if (is_prid(x)) return x;
   if (ok_modpr(x)) {
-    x = gel(x,mpr_PR);
+    x = modpr_get_pr(x);
     if (is_prid(x)) return x;
   }
   return NULL;
@@ -2692,9 +2718,9 @@ static GEN
 to_ff_init(GEN nf, GEN *pr, GEN *T, GEN *p, int zk)
 {
   GEN modpr = (typ(*pr) == t_COL)? *pr: modprinit(nf, *pr, zk);
-  *T = lg(modpr)==SMALLMODPR? NULL: gel(modpr,mpr_T);
-  *pr = gel(modpr,mpr_PR);
-  *p = gel(*pr,1); return modpr;
+  *T = modpr_get_T(modpr);
+  *pr = modpr_get_pr(modpr);
+  *p = pr_get_p(*pr); return modpr;
 }
 
 /* Return an element of O_K which is set to x Mod T */
@@ -2709,7 +2735,7 @@ modpr_genFq(GEN modpr)
       return gmael(modpr,mpr_NFP, 2);
     default: /* trivial case : p \nmid index */
     {
-      long v = varn( gel(modpr, mpr_T) );
+      long v = varn( modpr_get_T(modpr) );
       return pol_x(v);
     }
   }
@@ -2731,10 +2757,10 @@ zk_to_Fq_init(GEN nf, GEN *pr, GEN *T, GEN *p) {
 GEN
 zk_to_Fq(GEN x, GEN modpr)
 {
-  GEN pr = gel(modpr,mpr_PR), p = pr_get_p(pr);
+  GEN pr = modpr_get_pr(modpr), p = pr_get_p(pr);
   GEN ffproj = gel(modpr,mpr_FFP);
-  if (lg(modpr) == SMALLMODPR) return FpV_dotproduct(ffproj,x, p);
-  return FpM_FpC_mul_FpX(ffproj,x, p, varn(gel(modpr,mpr_T)));
+  GEN T = modpr_get_T(modpr);
+  return T? FpM_FpC_mul_FpX(ffproj,x, p, varn(T)): FpV_dotproduct(ffproj,x, p);
 }
 
 /* REDUCTION Modulo a prime ideal */
@@ -2743,7 +2769,7 @@ zk_to_Fq(GEN x, GEN modpr)
 static GEN
 Rg_to_ff(GEN nf, GEN x0, GEN modpr)
 {
-  GEN x = x0, den, pr = gel(modpr,mpr_PR), p = pr_get_p(pr);
+  GEN x = x0, den, pr = modpr_get_pr(modpr), p = pr_get_p(pr);
   long tx = typ(x);
 
   if (tx == t_POLMOD) { x = gel(x,2); tx = typ(x); }
@@ -3682,16 +3708,30 @@ rnfisfree(GEN bnf, GEN order)
 /**                                                                  **/
 /**********************************************************************/
 static GEN
-compositum_fix(GEN A)
+compositum_fix(GEN nf, GEN A)
 {
-  A = Q_primpart(A); RgX_check_ZX(A,"polcompositum");
-  if (!ZX_is_squarefree(A))
-    pari_err_DOMAIN("polcompositum","issquarefree(arg)","=",gen_0,A);
+  int ok;
+  if (nf)
+  {
+    long i, l = lg(A);
+    A = shallowcopy(A);
+    for (i=2; i<l; i++) gel(A,i) = basistoalg(nf, gel(A,i));
+    ok = nfissquarefree(nf,A);
+  }
+  else
+  {
+    A = Q_primpart(A); RgX_check_ZX(A,"polcompositum");
+    ok = ZX_is_squarefree(A);
+  }
+  if (!ok) pari_err_DOMAIN("polcompositum","issquarefree(arg)","=",gen_0,A);
   return A;
 }
+INLINE long
+nextk(long k) { return k>0 ? -k : 1-k; }
+
 /* modular version */
 GEN
-polcompositum0(GEN A, GEN B, long flall)
+nfcompositum(GEN nf, GEN A, GEN B, long flag)
 {
   pari_sp av = avma;
   int same;
@@ -3704,35 +3744,80 @@ polcompositum0(GEN A, GEN B, long flall)
   v = varn(A);
   if (varn(B) != v) pari_err_VAR("polcompositum", A,B);
   same = (A == B || RgX_equal(A,B));
-  A = compositum_fix(A);
-  if (!same) B = compositum_fix(B);
+  A = compositum_fix(nf,A);
+  if (!same) B = compositum_fix(nf,B);
 
-  D = NULL; /* -Wall */
+  D = LPRS = NULL; /* -Wall */
   k = same? -1: 1;
-  C = ZX_ZXY_resultant_all(A, B, &k, flall? &LPRS: NULL);
+  if (nf)
+  {
+    long v0 = fetch_var();
+    GEN q;
+    for(;; k = nextk(k))
+    {
+      GEN chgvar = deg1pol_shallow(stoi(k),pol_x(v0),v);
+      GEN B1 = poleval(B,chgvar);
+      C = RgX_resultant_all(A,B1,&q);
+      C = gsubst(C,v0,pol_x(v));
+      if (nfissquarefree(nf,C)) break;
+    }
+    C = lift_if_rational(C);
+    if (flag&1)
+    {
+      GEN H0, H1;
+      H0 = gsubst(gel(q,2),v0,pol_x(v));
+      H1 = gsubst(gel(q,3),v0,pol_x(v));
+      if (typ(H0) != t_POL) H0 = scalarpol_shallow(H0,v);
+      if (typ(H1) != t_POL) H1 = scalarpol_shallow(H1,v);
+      H0 = lift_if_rational(H0);
+      H1 = lift_if_rational(H1);
+      LPRS = mkvec2(H0,H1);
+    }
+  }
+  else
+  {
+    B = leafcopy(B); setvarn(B,fetch_var_higher());
+    C = ZX_ZXY_resultant_all(A, B, &k, (flag&1)? &LPRS: NULL);
+    setvarn(C, v);
+  }
+  /* C = Res_Y (A(Y), B(X + kY)) guaranteed squarefree */
   if (same)
   {
     D = RgX_rescale(A, stoi(1 - k));
     C = RgX_div(C, D);
-    if (degpol(C) <= 0) C = mkvec(D); else C = shallowconcat(ZX_DDF(C), D);
+    if (degpol(C) <= 0)
+      C = mkvec(D);
+    else
+      C = shallowconcat(nf? gel(nffactor(nf,C),1): ZX_DDF(C), D);
   }
+  else if (flag & 2)
+    C = mkvec(C);
   else
-    C = ZX_DDF(C); /* C = Res_Y (A(Y), B(X + kY)) guaranteed squarefree */
-  gen_sort_inplace(C, (void*)&cmpii, &gen_cmp_RgX, NULL);
-  if (flall)
+    C = nf? gel(nffactor(nf,C),1): ZX_DDF(C);
+  gen_sort_inplace(C, (void*)(nf?&cmp_RgX: &cmpii), &gen_cmp_RgX, NULL);
+  if (flag&1)
   { /* a,b,c root of A,B,C = compositum, c = b - k a */
     long i, l = lg(C);
     GEN a, b, mH0 = RgX_neg(gel(LPRS,1)), H1 = gel(LPRS,2);
+    setvarn(mH0,v);
+    setvarn(H1,v);
     for (i=1; i<l; i++)
     {
       GEN D = gel(C,i);
-      a = RgXQ_mul(mH0, QXQ_inv(H1, D), D);
+      a = RgXQ_mul(mH0, nf? RgXQ_inv(H1,D): QXQ_inv(H1,D), D);
       b = gadd(pol_x(v), gmulsg(k,a));
       gel(C,i) = mkvec4(D, mkpolmod(a,D), mkpolmod(b,D), stoi(-k));
     }
   }
-  settyp(C, t_VEC); return gerepilecopy(av, C);
+  (void)delete_var();
+  settyp(C, t_VEC);
+  if (flag&2) C = gel(C,1);
+  return gerepilecopy(av, C);
 }
+GEN
+polcompositum0(GEN A, GEN B, long flag)
+{ return nfcompositum(NULL,A,B,flag); }
+
 GEN
 compositum(GEN pol1,GEN pol2) { return polcompositum0(pol1,pol2,0); }
 GEN
@@ -3745,4 +3830,48 @@ ZX_compositum_disjoint(GEN A, GEN B)
 {
   long k = 1;
   return ZX_ZXY_resultant_all(A, B, &k, NULL);
+}
+
+GEN
+nfsplitting(GEN T, GEN D)
+{
+  pari_sp av = avma;
+  long d, v;
+  GEN F, K;
+  T = get_nfpol(T,&K);
+  if (!K)
+  {
+    if (typ(T) != t_POL) pari_err_TYPE("nfsplitting",T);
+    T = Q_primpart(T);
+    RgX_check_ZX(T,"nfsplitting");
+  }
+  d = degpol(T);
+  if (d<=1) return pol_x(0);
+  if (!K) {
+    if (!isint1(leading_term(T))) K = T = polredbest(T,0);
+    K = T;
+  }
+  if (D)
+  {
+    if (typ(D) != t_INT || signe(D) < 1) pari_err_TYPE("nfsplitting",D);
+  }
+  else
+  {
+    char *data = stack_strcat(pari_datadir, "/galdata");
+    long dmax = pari_is_dir(data)? 11: 7;
+    D = (d <= dmax)? gel(polgalois(T,DEFAULTPREC), 1): mpfact(d);
+  }
+  d = itos_or_0(D);
+  v = varn(T);
+  T = leafcopy(T); setvarn(T, fetch_var_higher());
+  for(F = T;;)
+  {
+    GEN P = gel(nffactor(K, F), 1), Q = gel(P,lg(P)-1);
+    if (degpol(gel(P,1)) == degpol(Q)) break;
+    F = rnfequation(K,Q);
+    if (degpol(F) == d) break;
+  }
+  (void)delete_var();
+  setvarn(F,v);
+  return gerepilecopy(av, F);
 }

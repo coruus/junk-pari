@@ -1,32 +1,44 @@
 _gmp_list="gmp GMPLIBS GMPINCLUDE"
 gmp=
-if test -n "$with_gmp"; then
-  with_gmp_lib="$with_gmp_lib $with_gmp/lib"
-  with_gmp_include="$with_gmp_include $with_gmp/include"
-fi
-pth="$with_gmp_lib $libpth"
-lib=gmp; . ./locatelib
+case "$with_gmp" in
+  yes|"");;
+  *)
+  if test -z "$with_gmp_lib"; then
+    with_gmp_lib="$with_gmp/lib"
+  fi
+  if test -z "$with_gmp_include"; then
+    with_gmp_include="$with_gmp/include"
+  fi;;
+esac
 
-pth="$with_gmp_include $basic_include_path"
+pth="$with_gmp_include"
 x=`./locate 'gmp.h' '' $pth`
 case $x in
  ?:/*|/*) gmp_include=`dirname $x`
    echo ..."Found gmp header in $gmp_include"
    GMPINCLUDE="-I$gmp_include"
    ;;
-  *) echo ..."gmp header file not found by Configure, trying to proceed"
-     gmp=;;
 esac
 
-exe=$osname-$arch-gmpv$$
-if test -n "$gmp"; then
-  GMPLIBS="-L$gmp -lgmp"
-else
-  GMPLIBS="-lgmp"
+try() { GMPLIBS=$1; cmd="$cmd0 $1"; . log_cmd; }
+
+exe=$osname-$arch-gmp$$
+cmd0="$CC $CFLAGS $extraflag $GMPINCLUDE -o $exe gmp_version.c"
+
+if test -n "$with_gmp_lib"; then
+  gmp=$with_gmp_lib
+  try "-L$gmp -lgmp"
+fi
+if test ! -r $exe; then
+  try "-lgmp"
+fi
+if test ! -r $exe; then
+  lib=gmp; . ./locatelib
+  if test -n "$gmp"; then
+    try "-L$gmp -lgmp"
+  fi
 fi
 
-cmd="$CC $CFLAGS $extraflag $GMPINCLUDE -o $exe gmp_version.c $GMPLIBS"
-. log_cmd
 if test -r $exe; then
   gmp_version=`env LD_LIBRARY_PATH="$LD_LIBRARY_PATH$dir_sep$gmp" $RUNTEST $exe`;
 fi
@@ -43,6 +55,16 @@ case "$gmp_version" in
     fi;;
   *) if test -z "$gmp"; then gmp=yes; fi;;
 esac
+
+if test -n "$gmp"; then
+  cmd="$CC $CFLAGS $extraflag $GMPINCLUDE -o $exe gmp_mismatch.c $GMPLIBS"
+  . log_cmd
+  if test ! -r $exe; then
+    gmp=
+    echo "### GMP headers mismatch: try both --with-gmp-lib and --with-gmp-include"
+  fi
+fi
+
 rm -f $exe $exe$exe_suff
 
 if test -z "$gmp"; then

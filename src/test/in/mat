@@ -14,6 +14,8 @@ default(realprecision,38);
 h=mathilbert(40);
 [Q,R] = matqr(h); vecmax(abs(h-Q*R)) < 1e-37
 [q,R] = matqr(h,1); vecmax(abs(mathouseholder(q,h)-R)) < 1e-37
+matqr([;])
+matqr([;],1)
 mathouseholder(1,1)
 mathouseholder(q,1)
 Mat(List())
@@ -71,6 +73,7 @@ matdet(A*Mod(1,2^64+13))
 matsolve(A*Mod(1,2^64+13),[1,2,3]~)
 
 matker([1.,I;I,-1.])
+matkerint(Mat([1,1]))
 
 trace(matid(3))
 trace([;])
@@ -94,3 +97,35 @@ vecsum([2])
 vecsum(primes(4))
 vecsum(1)
 1~
+
+content([])
+content([;])
+content(matrix(0,2))
+
+vectorsmall(3)
+v=vectorsmall(3,i,3*i^2)
+content(v)
+content(vectorsmall(0))
+v=vectorsmall(5,i,(3-i)*i)
+content(v)
+vectorsmall(3,i,i^100)
+
+m=[1,0;0,0;0,1]; b=[1,2;0,0;3,4];
+liftint(Mod(m,2)^(-1))
+liftint(Mod(m,3)^(-1))
+liftint(Mod(m,2^64+13)^(-1))
+liftint(matsolve(Mod(m,2),b))
+liftint(matsolve(Mod(m,3),b))
+liftint(matsolve(Mod(m,2^64+13),b))
+(m*ffgen(2^2)^0)^(-1)
+(m*ffgen(3^2)^0)^(-1)
+(m*ffgen((2^64+13)^2)^0)^(-1)
+
+m=[1,2,3;4,5,6];
+m[1,]=[1,2]
+m[1,]=[1,2,3,4]
+m[1,]=[1,2,3]~
+m[2,]=[1,2,3]
+m
+m[1,]*=2
+m

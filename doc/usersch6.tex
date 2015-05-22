@@ -4,6 +4,7 @@
 %
 % Permission is granted to copy, distribute and/or modify this document
 % under the terms of the GNU General Public License
+\newpage
 \chapter{Technical Reference Guide for Algebraic Number Theory}
 
 \section{General Number Fields}
@@ -183,6 +184,9 @@ embeddings of $K$.
 \fun{GEN}{nf_get_roundG}{GEN nf} returns a rescaled version of $G$, rounded
 to nearest integers, specifically \tet{RM_round_maxrank}$(G)$.
 
+\fun{GEN}{nf_get_ramified_primes}{GEN nf} returns the vector of ramified
+primes.
+
 \fun{GEN}{nf_get_Tr}{GEN nf} returns the matrix of the Trace quadratic form
 on the basis $(w_1,\ldots,w_n)$: its $(i,j)$ entry is $\text{Tr} w_i w_j$.
 
@@ -298,12 +302,24 @@ $L/K$.
 $\Z_L$ as a $\Z_K$-module, as a pseudo-matrix $(A,I)$ in HNF.
 
 \fun{GEN}{rnf_get_disc}{GEN rnf} is the output $[\goth{d}, s]$
- of \kbd{rnfdisc}
+ of \kbd{rnfdisc}.
+
+\fun{GEN}{rnf_get_idealdisc}{GEN rnf} is the ideal discriminant $\goth{d}$
+from \kbd{rnfdisc}.
 
 \fun{GEN}{rnf_get_index}{GEN rnf} is the index ideal $\goth{f}$
 
 \fun{GEN}{rnf_get_polabs}{GEN rnf} returns an absolute polynomial defining
 $L/\Q$.
+
+\fun{GEN}{rnf_get_alpha}{GEN rnf} a root $\alpha$ of the polynomial
+defining the base field, modulo \kbd{polabs} (cf.~\kbd{rnfequation})
+
+\fun{GEN}{rnf_get_k}{GEN rnf}
+a small integer $k$ such that $\theta = \beta + k\alpha$ is a root of
+\kbd{polabs}, where $\beta$ is a root of \kbd{pol}
+and $\alpha$ a root of the polynomial defining the base field,
+as in \tet{rnf_get_alpha} (cf.~also \kbd{rnfequation}).
 
 \fun{GEN}{rnf_get_invzk}{GEN rnf} contains $A^{-1}$, where $(A,I)$
 is the chosen pseudo-basis for $\Z_L$ over $\Z_K$.
@@ -431,7 +447,7 @@ Returns \kbd{LONG\_MAX} is $x$ is $0$.
 (with coefficients in \kbd{nf}) on the algebraic number $a$ (also in $nf$).
 
 \fun{GEN}{FpX_FpC_nfpoleval}{GEN nf, GEN pol, GEN a, GEN p} evaluate the
-\typ{FpX} \kbd{pol} on the algebraic number $a$ (also in $nf$).
+\kbd{FpX} \kbd{pol} on the algebraic number $a$ (also in $nf$).
 
 The following three functions implement trivial functionality akin to
 Euclidean division for which we currently have no real use. Of course, even if
@@ -587,6 +603,9 @@ by $n$). Otherwise, understand it as an element and returns the $1$-line
 \fun{GEN}{famat_inv}{GEN f} returns $f^{-1}$.
 
 \fun{GEN}{famat_inv_shallow}{GEN f} shallow version of \tet{famat_inv}.
+
+\fun{GEN}{famat_Z_gcd}{GEN M, GEN n} restrict the \var{famat} $M$ to
+the prime power dividing $n$.
 
 \fun{GEN}{to_famat}{GEN x, GEN k} given an element $x$ and an exponent
 $k$, returns the \var{famat} $x^k$.
@@ -812,13 +831,34 @@ iff $p$ is inert, and a \kbd{ZM} otherwise. Shallow function.
 
 \fun{GEN}{pr_norm}{GEN pr} returns the norm $p^f$ of the maximal ideal.
 
+\fun{GEN}{idealprimedec}{GEN nf, GEN p} list of maximal ideals dividing the
+prime $p$.
+
+\fun{GEN}{idealprimedec_limit_f}{GEN nf, GEN p, long f} as \tet{idealprimedec},
+limiting the list to primes of residual degree $\leq f$ if $f$ is non-zero.
+
+\fun{GEN}{idealprimedec_limit_norm}{GEN nf, GEN p, GEN B} as
+\tet{idealprimedec}, limiting the list to primes of norm $\leq B$, which
+must be a positive \typ{INT}.
+
 \subsec{Reducing modulo maximal ideals}
 
 \fun{GEN}{nfmodprinit}{GEN nf, GEN pr} returns an abstract \kbd{modpr}
 structure, associated to reduction modulo the maximal ideal \kbd{pr}, in
 \kbd{idealprimedec} format. From this data we can quickly project any
-\kbd{pr}-integral number field element to the residue field. This function is
-almost useless in library mode, we rather use:
+\kbd{pr}-integral number field element to the residue field.
+
+\fun{GEN}{modpr_get_pr}{GEN x} return the \kbd{pr} component from a \kbd{modpr}
+structure.
+
+\fun{GEN}{modpr_get_p}{GEN x} return the $p$ component from a \kbd{modpr}
+structure (underlying rational prime).
+
+\fun{GEN}{modpr_get_T}{GEN x} return the \kbd{T} component from a \kbd{modpr}
+structure: either \kbd{NULL} (prime of degree $1$) or an irreducible
+\kbd{FpX} defining the residue field over $\F_p$.
+
+In library mode, it is often easier to use directly
 
 \fun{GEN}{nf_to_Fq_init}{GEN nf, GEN *ppr, GEN *pT, GEN *pp} concrete
 version of \kbd{nfmodprinit}: \kbd{nf} and \kbd{*ppr} are the inputs, the
@@ -921,9 +961,17 @@ equal to $0$ or $1$, return as a \typ{VECSMALL} the list of indices $i$
 such that $v[i] = 1$. If $v$ is already a \typ{VECSMALL}, return it
 (not suitable for \kbd{gerepile} in this case).
 
+\fun{GEN}{vecsmall01_to_indices}{GEN v} as
+\bprog
+  vec01_to_indices(zv_to_ZV(v));
+@eprog
+
 \fun{GEN}{indices_to_vec01}{GEN p, long n} return the $0/1$ vector of length
 $n$ with ones exactly at the positions $p[1], p[2], \ldots$
 
+\fun{GEN}{nfembed}{GEN nf, GEN x, long k} returns a floating point
+approximation of the $k$-th embedding of $x$ (associated to the $k$-th
+complex root in \kbd{nf.roots}).
 
 \fun{GEN}{nfsign}{GEN nf,GEN x} $x$ being a number field element and \kbd{nf}
 any form of number field, return the $0-1$-vector giving the signs of the
@@ -1338,6 +1386,11 @@ return the associated \var{bnr}, and set $H$ to the associated subgroup. If
 then it contains generators.
 
 \subsec{Relative equations, Galois conjugates}
+
+\fun{GEN}{nfissquarefree}{GEN nf, GEN P} given $P$ a polynomial with
+coefficients in \var{nf}, return $1$ is $P$ is squarefree, and $0$
+otherwise. If is allowed (though less efficient) to replace \var{nf}
+by a monic \kbd{ZX} defining the field.
 
 \fun{GEN}{rnfequationall}{GEN A, GEN B, long *pk, GEN *pLPRS} $A$ is either an
 \var{nf} type (corresponding to a number field $K$) or an irreducible \kbd{ZX}
@@ -2092,5 +2145,13 @@ Finds a small $e$ such that the rank of $G_e$ is equal to the rank of $G$
 (its number of columns) and return $G_e$. This is useful as a preconditioning
 step to speed up LLL reductions, see \tet{nf_get_Gtwist}.
 Suitable for \kbd{gerepileupto}, but does not collect garbage.
+
+\section{Central simple algebras}
+
+\fun{void}{checkal}{GEN a} raise an exception if $a$ was not initialized
+by \tet{alinit}.
+
+\fun{long}{al_type}{GEN al} internal function called by \tet{altype}: assume
+\kbd{al} was created by \tet{alinit} (thereby saving a call to \kbd{checkal}).
 
 \newpage

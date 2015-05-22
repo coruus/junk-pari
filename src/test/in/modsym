@@ -14,6 +14,10 @@ mseval(W,xpm,[1/2,1/3])
 E=ellinit([0,-1,1,-10,-20]);
 [W,xpm]= msfromell(E,1);
 mseval(W,xpm,[1/2,1/3])
+E=ellinit([1,-1,1,-1,-14]);
+[W,xpm]= msfromell(E,1);
+mseval(W,xpm)
+mseval(W,xpm,[0,1/3])
 
 N = 227;
 W = msinit(N,2,1);
@@ -49,18 +53,27 @@ mseval(W,s,g[2])
 
 W = msinit(11, 2);
 T = mshecke(W, 3);
-[E,S] = mscuspidal(W)
+[S,E] = mscuspidal(W, 1)
 E == mseisenstein(W)
+S == mscuspidal(W)
 
 W = msinit(23,2, 1);
 V = mssplit(W, msnew(W));
 msqexpansion(W, V[1], 30)
+msqexpansion(W, V[1])
+
+M=msinit(603,2,1);L=msnew(M);V=mssplit(M,L);
+Set([v|v<-vector(#V,i,msqexpansion(M,V[i])),type(v[1])=="t_INT"])
 
 W = msinit(6,4);
-msatkinlehner(W,1)
-msatkinlehner(W,2)
-msatkinlehner(W,3)
-msatkinlehner(W,6)
+m=msatkinlehner(W,1)
+matdet(m)
+m=msatkinlehner(W,2)
+matdet(m)
+m=msatkinlehner(W,3)
+matdet(m)
+m=msatkinlehner(W,6)
+matdet(m)
 msatkinlehner(W,4)
 msstar(W)
 
@@ -77,3 +90,7 @@ N = msnew(M)[1];
 s = N[,1];
 S = mseval(M,s);
 msissymbol(M, S)
+
+W=msinit(17,2);
+G=mspathgens(W)[1];
+vector(#G,i,mspathlog(W,G[i]))

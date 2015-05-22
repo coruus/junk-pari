@@ -51,6 +51,10 @@ for (k = 1, #v,
 \\  if ([s,t] != correct[k], error(k))
 )
 }
+n=(2^100+277)^10;
+ispseudoprimepower(n)
+ispseudoprimepower(n,&p)
+p
 
 isprimepower(541^121)
 ispowerful(4)
@@ -121,3 +125,6 @@ ispower(3^(11^2))
 ispower((2/3)^(11^2))
 ispower(30011^(17*11))
 issquare(Mod(3,22))
+
+\\#1703
+ispower(-167^10)

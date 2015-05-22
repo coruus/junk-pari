@@ -166,7 +166,7 @@ print_fun_list(char **list, long nbli)
   if (i) pari_putc('\n');
 }
 
-static const long MAX_SECTION = 12;
+static const long MAX_SECTION = 13;
 static void
 commands(long n)
 {
@@ -253,7 +253,7 @@ gentypes(void)
   t_VEC    : row vector        [ code ] [  x_1  ] ... [  x_k  ]\n\
   t_COL    : column vector     [ code ] [  x_1  ] ... [  x_k  ]\n\
   t_MAT    : matrix            [ code ] [ col_1 ] ... [ col_k ]\n\
-  t_LIST   : list              [ code ] [ n ] [ nmax ][ vec ]\n\
+  t_LIST   : list              [ cod1 ] [ cod2 ][ vec ]\n\
   t_STR    : string            [ code ] [ man_1 ] ... [ man_k ]\n\
   t_VECSMALL: vec. small ints  [ code ] [ x_1 ] ... [ x_k ]\n\
   t_CLOSURE: functions [ code ] [ arity ] [ code ] [ operand ] [ data ] [ text ]\n\
@@ -274,12 +274,13 @@ menu_commands(void)
   5: Functions related to ELLIPTIC CURVES\n\
   6: Functions related to MODULAR FORMS and MODULAR SYMBOLS\n\
   7: Functions related to general NUMBER FIELDS\n\
-  8: POLYNOMIALS and power series\n\
-  9: Vectors, matrices, LINEAR ALGEBRA and sets\n\
- 10: SUMS, products, integrals and similar functions\n\
- 11: GRAPHIC functions\n\
- 12: PROGRAMMING under GP\n\
- 13: The PARI community\n\
+  8: Functions related to central simple ALGEBRAS\n\
+  9: POLYNOMIALS and power series\n\
+ 10: Vectors, matrices, LINEAR ALGEBRA and sets\n\
+ 11: SUMS, products, integrals and similar functions\n\
+ 12: GRAPHIC functions\n\
+ 13: PROGRAMMING under GP\n\
+ 14: The PARI community\n\
 \n\
 Also:\n\
   ? functionname (short on-line help)\n\
@@ -1078,7 +1079,6 @@ update_logfile(const char *prompt, const char *s)
   pari_sp av;
   const char *p;
   if (!pari_logfile) return;
-  if (!is_interactive() && !GP_DATA->echo) return;
   av = avma;
   p = strip_prompt(prompt); /* raw prompt */
 
@@ -1103,7 +1103,9 @@ update_logfile(const char *prompt, const char *s)
 void
 gp_echo_and_log(const char *prompt, const char *s)
 {
-  if (GP_DATA->echo && !is_interactive()) {
+  if (!is_interactive())
+  {
+    if (!GP_DATA->echo) return;
     /* not pari_puts(): would duplicate in logfile */
     fputs(prompt, pari_outfile);
     fputs(s,      pari_outfile);

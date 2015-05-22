@@ -881,7 +881,7 @@ nf_to_scalar_or_alg(GEN nf, GEN x)
   return NULL; /* not reached */
 }
 
-/* gmul(A, RgX_to_Rg(x)), A t_MAT (or t_VEC) of compatible dimensions */
+/* gmul(A, RgX_to_RgC(x)), A t_MAT (or t_VEC) of compatible dimensions */
 GEN
 mulmat_pol(GEN A, GEN x)
 {
@@ -1163,12 +1163,37 @@ eval_sign(GEN M, GEN x, long k)
 {
   long i, l = lg(x);
   GEN z = gel(x,1); /* times M[k,1], which is 1 */
-  for (i = 2; i < l; i++)
-    z = mpadd(z, mpmul(gcoeff(M,k,i), gel(x,i)));
+  for (i = 2; i < l; i++) z = mpadd(z, mpmul(gcoeff(M,k,i), gel(x,i)));
   if (realprec(z) < DEFAULTPREC) pari_err_PREC("nfsign_arch");
   return signe(z);
 }
 
+/* sigma_k(x) */
+GEN
+nfembed(GEN nf, GEN x, long k)
+{
+  pari_sp av = avma;
+  long i, l;
+  GEN z, M;
+  nf = checknf(nf);
+  x = nf_to_scalar_or_basis(nf,x);
+  if (typ(x) != t_COL) return gerepilecopy(av, x);
+  M = nf_get_M(nf); l = lg(M); /* > 2 */
+  z = gel(x,1);
+  for (i=2; i<l; i++) z = gadd(z, gmul(gcoeff(M,k,i), gel(x,i)));
+  return gerepileupto(av, z);
+}
+
+GEN
+vecsmall01_to_indices(GEN v)
+{
+  long i, k, l = lg(v);
+  GEN p = new_chunk(l) + l;
+  for (k=1, i=l-1; i; i--)
+    if (v[i]) { *--p = i; k++; }
+  *--p = evallg(k) | evaltyp(t_VECSMALL);
+  avma = (pari_sp)p; return p;
+}
 GEN
 vec01_to_indices(GEN v)
 {
@@ -2346,7 +2371,7 @@ Ideallist(GEN bnf, ulong bound, long flag)
   const long istar_flag = (flag & nf_GEN) | nf_INIT;
   pari_sp av, av0 = avma;
   long i, j, l;
-  GEN nf, z, p, fa, id, U, empty = cgetg(1,t_VEC);
+  GEN nf, z, p, fa, id, BOUND, U, empty = cgetg(1,t_VEC);
   forprime_t S;
   ideal_data ID;
   GEN (*join_z)(ideal_data*, GEN) =
@@ -2362,6 +2387,7 @@ Ideallist(GEN bnf, ulong bound, long flag)
    * an ideal, a bid, or a couple [bid, log(units)]. Such objects are stored
    * in vectors, computed one primary component at a time; join_z
    * reconstructs the global object */
+  BOUND = utoipos(bound);
   z = cgetg(bound+1,t_VEC);
   if (do_units) {
     U = init_units(bnf);
@@ -2379,13 +2405,11 @@ Ideallist(GEN bnf, ulong bound, long flag)
   while ((p[2] = u_forprime_next(&S)))
   {
     if (DEBUGLEVEL>1) { err_printf("%ld ",p[2]); err_flush(); }
-    fa = idealprimedec(nf, p);
+    fa = idealprimedec_limit_norm(nf, p, BOUND);
     for (j=1; j<lg(fa); j++)
     {
       GEN pr = gel(fa,j), z2;
-      long f = pr_get_f(pr);
-      ulong q, Q = upowuu(p[2], f);
-      if (!Q || Q > bound) break;
+      ulong q, Q = upowuu(p[2], pr_get_f(pr));
 
       z2 = leafcopy(z);
       q = Q;

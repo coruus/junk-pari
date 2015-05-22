@@ -981,15 +981,6 @@ F2xq_ell_to_a4a6(GEN E, GEN T)
 }
 
 static GEN
-Fq_to_FpXQ(GEN x, GEN T)
-{
-  if (typ(x)==t_INT)
-    return scalarpol(x, varn(T));
-  else
-    return x;
-}
-
-static GEN
 FqV_to_FpXQV(GEN x, GEN T)
 {
   pari_sp av = avma;
@@ -1016,7 +1007,7 @@ FF_ellcard(GEN E)
   switch(fg[1])
   {
   case t_FF_FpXQ:
-    return FpXQ_ellcard(Fq_to_FpXQ(gel(e,1),T), Fq_to_FpXQ(gel(e,2),T),T,p);
+    return FpXQ_ellcard(Fq_to_FpXQ(gel(e,1),T,p), Fq_to_FpXQ(gel(e,2),T,p),T,p);
   case t_FF_F2xq:
     return F2xq_ellcard(gel(e,1),gel(e,2),T);
   default:
@@ -1038,7 +1029,7 @@ FF_ellgroup(GEN E)
   switch(fg[1])
   {
   case t_FF_FpXQ:
-    G = FpXQ_ellgroup(Fq_to_FpXQ(gel(e,1),T),Fq_to_FpXQ(gel(e,2),T),N,T,p,&m);
+    G = FpXQ_ellgroup(Fq_to_FpXQ(gel(e,1),T,p),Fq_to_FpXQ(gel(e,2),T,p),N,T,p,&m);
     break;
   case t_FF_F2xq:
     G = F2xq_ellgroup(gel(e,1),gel(e,2),N,T,&m); break;
@@ -1062,7 +1053,7 @@ FF_ellgens(GEN E)
   {
   case t_FF_FpXQ:
     e3 = FqV_to_FpXQV(gel(e,3),T);
-    F = FpXQ_ellgens(Fq_to_FpXQ(gel(e,1),T),Fq_to_FpXQ(gel(e,2),T),e3,G,m,T,p);
+    F = FpXQ_ellgens(Fq_to_FpXQ(gel(e,1),T,p),Fq_to_FpXQ(gel(e,2),T,p),e3,G,m,T,p);
     break;
   case t_FF_F2xq:
     F = F2xq_ellgens(gel(e,1),gel(e,2),gel(e,3),G,m,T);
@@ -1145,7 +1136,7 @@ FF_ellrandom(GEN E)
   switch (fg[1])
   {
   case t_FF_FpXQ:
-    Q = random_FpXQE(Fq_to_FpXQ(gel(e,1),T), Fq_to_FpXQ(gel(e,2),T), T, p);
+    Q = random_FpXQE(Fq_to_FpXQ(gel(e,1),T,p), Fq_to_FpXQ(gel(e,2),T,p), T, p);
     Q = FpXQE_changepoint(Q, FqV_to_FpXQV(gel(e,3), T) , T, p);
     break;
   case t_FF_F2xq:
@@ -1467,11 +1458,21 @@ ffgen(GEN T, long v)
       if (!FpX_is_squarefree(T,p)) pari_err_IRREDPOL("ffgen",T);
       break;
     case t_INT:
-      d = Z_isanypower(T, &p);
-      if (!d) { d = 1; p = T; }
-      if (!BPSW_psp(p)) pari_err_PRIME("ffgen",p);
+      d = ispseudoprimepower(T,&p);
+      if (!d) pari_err_PRIME("ffgen",T);
       T = init_Fq(p, d, v);
       break;
+    case t_VEC: case t_COL:
+      if (lg(T) == 3) {
+        p = gel(T,1);
+        A = gel(T,2);
+        if (typ(p) == t_INT && typ(A) == t_INT)
+        {
+          d = itos(A);
+          T = init_Fq(p, d, v);
+          break;
+        }
+      }
     default:
       pari_err_TYPE("ffgen",T);
       return NULL;
@@ -1677,22 +1678,22 @@ FFM_to_raw(GEN x)
 }
 
 static GEN
-FqC_to_FpXQC(GEN x, GEN T)
+FqC_to_FpXQC(GEN x, GEN T, GEN p)
 {
   long i, lx;
   GEN y = cgetg_copy(x,&lx);
   for(i=1; i<lx; i++)
-    gel(y, i) = Fq_to_FpXQ(gel(x, i), T);
+    gel(y, i) = Fq_to_FpXQ(gel(x, i), T, p);
   return y;
 }
 
 static GEN
-FqM_to_FpXQM(GEN x, GEN T)
+FqM_to_FpXQM(GEN x, GEN T, GEN p)
 {
   long i, lx;
   GEN y = cgetg_copy(x,&lx);
   for(i=1; i<lx; i++)
-    gel(y, i) = FqC_to_FpXQC(gel(x, i), T);
+    gel(y, i) = FqC_to_FpXQC(gel(x, i), T, p);
   return y;
 }
 
@@ -1707,7 +1708,7 @@ FFM_wrap(GEN M, GEN ff, GEN (*Fq)(GEN,GEN,GEN),
   _getFF(ff,&T,&p,&pp); M = FFM_to_raw(M);
   switch(ff[1])
   {
-  case t_FF_FpXQ: M = FqM_to_FpXQM(Fq(M,T,p), T); break;
+  case t_FF_FpXQ: M = FqM_to_FpXQM(Fq(M,T,p), T, p); break;
   case t_FF_F2xq: M = F2xq(M,T); break;
   default: M = Flxq(M,T,pp); break;
   }
@@ -1778,9 +1779,10 @@ FFM_mul(GEN M, GEN N, GEN ff)
   pari_sp av = avma;
   ulong pp;
   GEN P, T, p;
+  int is_sqr = M==N;
   _getFF(ff, &T, &p, &pp);
   M = FFM_to_raw(M);
-  N = FFM_to_raw(N);
+  N = is_sqr? M: FFM_to_raw(N);
   switch (ff[1])
   {
   case t_FF_FpXQ: P = FqM_mul(M, N, T, p); break;

@@ -848,10 +848,10 @@ compute_M0(GEN M_star,long N)
   long bitprec = 24;
 
   if (N == 2) return gmul2n(sqrr(gacosh(gmul2n(M_star,-1),0)), -1);
-  vM = fetch_var(); M = pol_x(vM);
-  vz = fetch_var(); Z = pol_x(vz);
-  vy = fetch_var(); Y = pol_x(vy);
   vx = fetch_var(); X = pol_x(vx);
+  vy = fetch_var(); Y = pol_x(vy);
+  vz = fetch_var(); Z = pol_x(vz);
+  vM = fetch_var(); M = pol_x(vM);
 
   M0 = NULL; m1 = N/3;
   for (n1=1; n1<=m1; n1++) /* 1 <= n1 <= n2 <= n3 < N */
@@ -1043,14 +1043,11 @@ primecertify(GEN bnf, GEN beta, ulong p, GEN bad)
     if (!umodiu(bad,q) || !uisprime(q)) continue;
 
     gq = utoipos(q);
-    LQ = idealprimedec(bnf,gq); nbqq = lg(LQ)-1;
+    LQ = idealprimedec_limit_f(bnf,gq,1); nbqq = lg(LQ)-1;
     g = NULL;
     for (i=1; i<=nbqq; i++)
     {
-      GEN mat1, Q = gel(LQ,i);
-
-      if (pr_get_f(Q) != 1) break;
-      /* Q has degree 1 */
+      GEN mat1, Q = gel(LQ,i); /* degree 1 */
       if (!g)
       {
         g = gener_Flxq(pol_x(0), q, &ord);
@@ -1419,14 +1416,12 @@ rnfnormgroup_i(GEN bnr, GEN polrel)
 
     if (!umodiu(index, p)) continue; /* can't be treated efficiently */
 
-    fa = idealprimedec(nf, utoipos(p)); lfa = lg(fa)-1;
+    /* primes of degree 1 are enough, and simpler */
+    fa = idealprimedec_limit_f(nf, utoipos(p), 1); lfa = lg(fa)-1;
     for (i=1; i<=lfa; i++)
     {
       GEN pr = gel(fa,i), pp, T, polr, modpr;
       long f;
-
-      /* primes of degree 1 are enough, and simpler */
-      if (pr_get_f(pr) > 1) break;
       /* if pr (probably) ramified, we have to use all (non-ram) P | pr */
       if (idealval(nf,cnd,pr)) { oldf = 0; continue; }
       modpr = zk_to_Fq_init(nf, &pr, &T, &pp); /* T = NULL, pp ignored */
@@ -2110,7 +2105,7 @@ discrayabslistarch(GEN bnf, GEN arch, ulong bound)
   long degk, j, k, l, nba, nbarch, r1, c;
   pari_sp av0 = avma,  av,  av1;
   GEN nf, p, Z, fa, ideal, bidp, matarchunit, Disc, U, sgnU, EMPTY, empty;
-  GEN res, embunit, h, Ray, discall, idealrel, idealrelinit, fadkabs;
+  GEN res, embunit, h, Ray, discall, idealrel, idealrelinit, fadkabs, BOUND;
   ulong i, ii, sqbou;
   forprime_t S;
 
@@ -2140,6 +2135,7 @@ discrayabslistarch(GEN bnf, GEN arch, ulong bound)
 
   empty = cgetg(1,t_VEC);
   /* what follows was rewritten from Ideallist */
+  BOUND = utoipos(bound);
   p = cgetipos(3);
   u_forprime_init(&S, 2, bound);
   av = avma;
@@ -2169,13 +2165,12 @@ discrayabslistarch(GEN bnf, GEN arch, ulong bound)
       for (i=1; i<=sqbou; i++) bigel(z,i) = bigel(Z,i);
       Z = z;
     }
-    fa = idealprimedec(nf,p);
+    fa = idealprimedec_limit_norm(nf,p,BOUND);
     for (j=1; j<lg(fa); j++)
     {
       GEN pr = gel(fa,j);
       long prcode, f = pr_get_f(pr);
       ulong q, Q = upowuu(p[2], f);
-      if (!Q || Q > bound) break;
 
       /* p, f-1, j-1 as a single integer in "base degk" (f,j <= degk)*/
       prcode = (p[2]*degk + f-1)*degk + j-1;

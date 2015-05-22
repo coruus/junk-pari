@@ -289,7 +289,7 @@ kbessel1(GEN nu, GEN gx, long prec)
   y = cgetr(l); l1=lnew+1;
   av = avma; x = gtofp(gx, lnew); nu = gtofp(nu, lnew);
   nu2 = gmul2n(sqrr(nu), 2); togglesign(nu2);
-  n = (long) (prec2nbits_mul(l,LOG2) + PI*fabs(rtodbl(nu))) / 2;
+  n = (long) (prec2nbits_mul(l,LOG2) + M_PI*fabs(rtodbl(nu))) / 2;
   n2 = n<<1; pitemp=mppi(l1);
   r = gmul2n(x,1);
   if (cmprs(x, n) < 0)
@@ -568,7 +568,7 @@ hyperu(GEN a, GEN b, GEN gx, long prec)
   x = gtofp(gx, l);
   a1 = gaddsg(1, gadd(a,mb)); P = gmul(a1, a);
   p1 = gabs(gtofp(P,LOWDEFAULTPREC), LOWDEFAULTPREC);
-  n = (long)(prec2nbits_mul(l, LOG2) + PI*sqrt(gtodouble(p1)));
+  n = (long)(prec2nbits_mul(l, LOG2) + M_PI*sqrt(gtodouble(p1)));
   S = gadd(a1, a);
   if (cmprs(x,n) < 0)
   {
@@ -865,7 +865,7 @@ precision2(GEN x, GEN y)
 #endif
 
 /* return |x| */
-static double
+double
 dblmodulus(GEN x)
 {
   if (typ(x) == t_COMPLEX)
@@ -1113,10 +1113,10 @@ cxerfc_r1(GEN x, long prec)
   GEN h, h2, eh2, denom, res, lambda;
   long u, v;
   const double D = prec2nbits_mul(prec, LOG2);
-  const long npoints = (long)ceil(D/PI)+1;
+  const long npoints = (long)ceil(D/M_PI)+1;
   pari_sp av = avma;
   {
-    double t = exp(-2*PI*PI/D); /* ~exp(-2*h^2) */
+    double t = exp(-2*M_PI*M_PI/D); /* ~exp(-2*h^2) */
     v = 30; /* bits that fit in both long and double mantissa */
     u = (long)floor(t*(1L<<v));
     /* define exp(-2*h^2) to be u*2^(-v) */
@@ -1203,7 +1203,7 @@ get_xinf(double beta)
   double x0, y0, x1;
 
   if (beta < maxbeta) return beta + pow(3*beta, 1.0/3.0);
-  x0 = beta + PI/2.0;
+  x0 = beta + M_PI/2.0;
   for(;;)
   {
     y0 = x0*x0;
@@ -1237,7 +1237,7 @@ optim_zeta(GEN S, long prec, long *pp, long *pn)
     if (beta > 0)
     {
       p = (long)ceil(beta / 2.0);
-      n = fabs(s + 2*p-1)/(2*PI);
+      n = fabs(s + 2*p-1)/(2*M_PI);
     }
     else
     {
@@ -1254,7 +1254,7 @@ optim_zeta(GEN S, long prec, long *pp, long *pn)
     l2 = dabs(s, t)/2;
     if (l < l2) l = l2;
     p = (long) ceil(l); if (p < 2) p = 2;
-    n = 1 + dabs(p+s/2.-.25, t/2) * la / PI;
+    n = 1 + dabs(p+s/2.-.25, t/2) * la / M_PI;
   }
   else
   {
@@ -1269,7 +1269,7 @@ optim_zeta(GEN S, long prec, long *pp, long *pn)
     }
     else
       if (s < 1.0) p = 1;
-    n = p? dabs(s + 2*p-1, t) / (2*PI) : exp((B-LOG2+L) / s);
+    n = p? dabs(s + 2*p-1, t) / (2*M_PI) : exp((B-LOG2+L) / s);
   }
   *pp = p;
   *pn = (long)ceil(n);
@@ -1403,22 +1403,21 @@ bernreal(long n, long prec)
   return B;
 }
 
-/* zeta(s+h*j), j=0..N-1, s>1, using sumalt. Johansonn's thesis, Algo 4.7.1 */
-GEN
-zetaBorweinRecycled(long s, long h, long N, long prec)
+/* zeta(a*j+b), j=0..N-1, b>1, using sumalt. Johansonn'b thesis, Algo 4.7.1 */
+static GEN
+veczetas(long a, long b, long N, long prec)
 {
-  pari_sp av = avma, lim = stack_lim(av,3);
+  pari_sp av = avma;
   const long n = ceil(2 + prec2nbits_mul(prec, LOG2/1.7627));
   long j, k;
-  GEN c, d, z = cgetg(N+1, t_VEC);
+  GEN c, d, z = zerovec(N);
   c = d = int2n(2*n-1);
-  for (j = 0; j < N; j++) gel(z,j+1) = gen_0;
   for (k = n; k; k--)
   {
-    GEN u, t = divii(d, powuu(k,s));
+    GEN u, t = divii(d, powuu(k,b));
     if (!odd(k)) t = negi(t);
     gel(z,1) = addii(gel(z,1), t);
-    u = powuu(k,h);
+    u = powuu(k,a);
     for (j = 1; j < N; j++)
     {
       t = divii(t,u); if (!signe(t)) break;
@@ -1427,24 +1426,68 @@ zetaBorweinRecycled(long s, long h, long N, long prec)
     c = muluui(k,2*k-1,c);
     c = diviuuexact(c, 2*(n-k+1),n+k-1);
     d = addii(d,c);
-    if (low_stack(lim,stack_lim(av,3)))
+    if (gc_needed(av,3))
     {
-      if(DEBUGMEM>1) pari_warn(warnmem,"zetaBorweinRecycled");
+      if(DEBUGMEM>1) pari_warn(warnmem,"zetaBorweinRecycled, k = %ld", k);
       gerepileall(av, 3, &c,&d,&z);
     }
   }
   for (j = 0; j < N; j++)
   {
-    long a = s+h*j-1;
-    gel(z,j+1) = rdivii(shifti(gel(z,j+1), a), subii(shifti(d,a), d), prec);
+    long u = b+a*j-1;
+    gel(z,j+1) = rdivii(shifti(gel(z,j+1), u), subii(shifti(d,u), d), prec);
   }
   return gerepilecopy(av, z);
 }
+/* zeta(a*j+b), j=0..N-1, b>1, using sumalt */
+GEN
+veczeta(GEN a, GEN b, long N, long prec)
+{
+  pari_sp av;
+  long n, j, k;
+  GEN L, c, d, z;
+  if (typ(a) == t_INT && typ(b) == t_INT)
+    return veczetas(itos(a),  itos(b), N, prec);
+  av = avma; z = zerovec(N);
+  n = ceil(2 + prec2nbits_mul(prec, LOG2/1.7627));
+  c = d = int2n(2*n-1);
+  for (k = n; k; k--)
+  {
+    GEN u, t;
+    L = logr_abs(utor(k, prec)); /* log(k) */
+    t = gdiv(d, gexp(gmul(b, L), prec)); /* d / k^b */
+    if (!odd(k)) t = gneg(t);
+    gel(z,1) = gadd(gel(z,1), t);
+    u = gexp(gmul(a, L), prec);
+    for (j = 1; j < N; j++)
+    {
+      t = gdiv(t,u); if (gexpo(t) < 0) break;
+      gel(z,j+1) = gadd(gel(z,j+1), t);
+    }
+    c = muluui(k,2*k-1,c);
+    c = diviuuexact(c, 2*(n-k+1),n+k-1);
+    d = addii(d,c);
+    if (gc_needed(av,3))
+    {
+      if(DEBUGMEM>1) pari_warn(warnmem,"veczeta, k = %ld", k);
+      gerepileall(av, 3, &c,&d,&z);
+    }
+  }
+  L = mplog2(prec);
+  for (j = 0; j < N; j++)
+  {
+    GEN u = gsubgs(gadd(b, gmulgs(a,j)), 1);
+    GEN w = gexp(gmul(u, L), prec); /* 2^u */
+    gel(z,j+1) = gdiv(gmul(gel(z,j+1), w), gmul(d,gsubgs(w,1)));
+  }
+  return gerepilecopy(av, z);
+}
+
 /* zeta(s) using sumalt, case h=0,N=1. Assume s > 1 */
 static GEN
 zetaBorwein(long s, long prec)
 {
-  pari_sp av = avma, lim = stack_lim(av,3);
+  pari_sp av = avma;
   const long n = ceil(2 + prec2nbits_mul(prec, LOG2/1.7627));
   long k;
   GEN c, d, z = gen_0;
@@ -1456,9 +1499,9 @@ zetaBorwein(long s, long prec)
     c = muluui(k,2*k-1,c);
     c = diviuuexact(c, 2*(n-k+1),n+k-1);
     d = addii(d,c);
-    if (low_stack(lim,stack_lim(av,3)))
+    if (gc_needed(av,3))
     {
-      if(DEBUGMEM>1) pari_warn(warnmem,"zetaBorwein");
+      if(DEBUGMEM>1) pari_warn(warnmem,"zetaBorwein, k = %ld", k);
       gerepileall(av, 3, &c,&d,&z);
     }
   }
@@ -1657,7 +1700,7 @@ twistpartialzeta(GEN q, long f, long c, GEN va, GEN cff)
 {
   long j, k, lva = lg(va)-1, N = lg(cff)-1;
   pari_sp av, av2;
-  GEN Ax, Cx, Bx, Dx, x = pol_x(0), y = pol_x(fetch_user_var("y"));
+  GEN Ax, Cx, Bx, Dx, x = pol_x(0), y = pol_x(1);
   GEN cyc, psm, rep, eta, etaf;
 
   cyc = gdiv(gsubgs(gpowgs(y, c), 1), gsubgs(y, 1));
@@ -2779,7 +2822,7 @@ jell(GEN x, long prec)
      * but inteta(q) costly and useless if expo(q) << 1  => inteta(q) = 1.
      * log_2 ( exp(-2Pi Im tau) ) < -prec2nbits(prec)
      * <=> Im tau > prec2nbits(prec) * log(2) / 2Pi */
-    long C = (long)prec2nbits_mul(prec, LOG2/(2*PI));
+    long C = (long)prec2nbits_mul(prec, LOG2/(2*M_PI));
     q = exp_IPiC(gmul2n(x,1), prec); /* e(x) */
     if (gcmpgs(gel(x,2), C) > 0) /* eta(q(x)) = 1 : no need to compute q(2x) */
       h = q;
@@ -3218,7 +3261,7 @@ mplambertW0(GEN y)
     x = mulrr(x, divrr(subsr(1, mplog(divrr(x,y))), addrs(x,1)));
   } while (expo(tmp) - expo(subrr(x,tmp)) < bitprec);
   return x;
-};
+}
 
 /* Lambert W function using Newton, increasing prec */
 GEN

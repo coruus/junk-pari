@@ -117,7 +117,7 @@ plot(GEN a, GEN b, GEN code, GEN ysmlu,GEN ybigu, long prec)
 {
   const char BLANK = ' ', YY = '|', XX_UPPER = '\'', XX_LOWER = '.';
   long jz, j, i, sig;
-  pari_sp av = avma, av2;
+  pari_sp av = avma;
   int jnew, jpre = 0; /* for lint */
   GEN x, dx;
   double diff, dyj, ysml, ybig, y[ISCR+1];
@@ -135,11 +135,12 @@ plot(GEN a, GEN b, GEN code, GEN ysmlu,GEN ybigu, long prec)
     scr[i][JSCR]= XX_UPPER;
     for (j=2; j<JSCR; j++) scr[i][j] = BLANK;
   }
-  av2 = avma;
   ysml = ybig = 0.; /* -Wall */
   for (i=1; i<=ISCR; i++)
   {
+    pari_sp av2 = avma;
     y[i] = gtodouble( READ_EXPR(code,x) );
+    avma = av2;
     if (i == 1)
       ysml = ybig = y[1];
     else
@@ -148,11 +149,6 @@ plot(GEN a, GEN b, GEN code, GEN ysmlu,GEN ybigu, long prec)
       if (y[i] > ybig) ybig = y[i];
     }
     x = addrr(x,dx);
-    if (gc_needed(av2,1))
-    {
-      if (DEBUGMEM>1) pari_warn(warnmem,"plot");
-      x = gerepileuptoleaf(av2, x);
-    }
   }
   avma = av;
   if (ysmlu) ysml = gtodouble(ysmlu);
@@ -163,7 +159,7 @@ plot(GEN a, GEN b, GEN code, GEN ysmlu,GEN ybigu, long prec)
   /* work around bug in gcc-4.8 (32bit): plot(x=-5,5,sin(x)))) */
   jz = 3 - (long)(ysml*dyj + 0.5); /* 3 - DTOL(ysml*dyj) */
   z = PICTZERO(jz); jz /= 3;
-  for (i=1; i<=ISCR; i++, avma = av2)
+  for (i=1; i<=ISCR; i++)
   {
     if (0<=jz && jz<=JSCR) scr[i][jz]=z;
     j = 3 + DTOL((y[i]-ysml)*dyj);
@@ -820,13 +816,18 @@ rectcopy_gen(long source, long dest, GEN xoff, GEN yoff, long flag)
   long xi, yi;
   if (flag & RECT_CP_RELATIVE) {
     double xd = gtodouble(xoff), yd = gtodouble(yoff);
-
+    if (xd > 1) pari_err_DOMAIN("plotcopy","dx",">",gen_1,xoff);
+    if (xd < 0) pari_err_DOMAIN("plotcopy","dx","<",gen_0,xoff);
+    if (yd > 1) pari_err_DOMAIN("plotcopy","dy",">",gen_1,yoff);
+    if (yd < 0) pari_err_DOMAIN("plotcopy","dy","<",gen_0,yoff);
     PARI_get_plot();
     xi = pari_plot.width - 1;
     yi = pari_plot.height - 1;
     xi = DTOL(xd*xi);
     yi = DTOL(yd*yi);
   } else {
+    if (typ(xoff) != t_INT) pari_err_TYPE("plotcopy",xoff);
+    if (typ(yoff) != t_INT) pari_err_TYPE("plotcopy",yoff);
     xi = itos(xoff);
     yi = itos(yoff);
   }
@@ -850,60 +851,47 @@ rectcopy_gen(long source, long dest, GEN xoff, GEN yoff, long flag)
   rectcopy(source, dest, xi, yi);
 }
 
+static void*
+cp(void* R, size_t t)
+{ void *o = pari_malloc(t); memcpy(o,R,t); return o; }
+
 void
-rectcopy(long source, long dest, long xoff, long yoff)
+rectcopy(long source, long dest, long x, long y)
 {
   PariRect *s = check_rect_init(source), *d = check_rect_init(dest);
-  RectObj *R = RHead(s);
-  RectObj *tail = RTail(d);
-  RectObj *next;
-  int i;
+  RectObj *R, *tail = RTail(d);
+  long i;
 
-  while (R)
+  for (R = RHead(s); R; R = RoNext(R))
   {
+    RectObj *o;
     switch(RoType(R))
     {
       case ROt_PT:
-        next = (RectObj*) pari_malloc(sizeof(RectObj1P));
-        memcpy(next,R,sizeof(RectObj1P));
-        RoPTx(next) += xoff; RoPTy(next) += yoff;
-        RoNext(tail) = next; tail = next;
+        o = (RectObj*)cp(R, sizeof(RectObj1P));
+        RoPTx(o) += x; RoPTy(o) += y;
         break;
       case ROt_LN: case ROt_BX:
-        next = (RectObj*) pari_malloc(sizeof(RectObj2P));
-        memcpy(next,R,sizeof(RectObj2P));
-        RoLNx1(next) += xoff; RoLNy1(next) += yoff;
-        RoLNx2(next) += xoff; RoLNy2(next) += yoff;
-        RoNext(tail) = next; tail = next;
+        o = (RectObj*)cp(R, sizeof(RectObj2P));
+        RoLNx1(o) += x; RoLNy1(o) += y;
+        RoLNx2(o) += x; RoLNy2(o) += y;
         break;
       case ROt_MP: case ROt_ML:
-        next = (RectObj*) pari_malloc(sizeof(RectObjMP));
-        memcpy(next,R,sizeof(RectObjMP));
-        RoMPxs(next) = (double*) pari_malloc(sizeof(double)*RoMPcnt(next));
-        RoMPys(next) = (double*) pari_malloc(sizeof(double)*RoMPcnt(next));
-        memcpy(RoMPxs(next),RoMPxs(R),sizeof(double)*RoMPcnt(next));
-        memcpy(RoMPys(next),RoMPys(R),sizeof(double)*RoMPcnt(next));
-        for (i=0; i<RoMPcnt(next); i++)
-        {
-          RoMPxs(next)[i] += xoff; RoMPys(next)[i] += yoff;
-         }
-        RoNext(tail) = next; tail = next;
+        o = (RectObj*)cp(R, sizeof(RectObjMP));
+        RoMPxs(o) = (double*)cp(RoMPxs(R), sizeof(double)*RoMPcnt(o));
+        RoMPys(o) = (double*)cp(RoMPys(R), sizeof(double)*RoMPcnt(o));
+        for (i=0; i<RoMPcnt(o); i++) { RoMPxs(o)[i] += x; RoMPys(o)[i] += y; }
         break;
       case ROt_ST:
-        next = (RectObj*) pari_malloc(sizeof(RectObjST));
-        memcpy(next,R,sizeof(RectObjMP));
-        RoSTs(next) = (char*) pari_malloc(RoSTl(R)+1);
-        memcpy(RoSTs(next),RoSTs(R),RoSTl(R)+1);
-        RoSTx(next) += xoff; RoSTy(next) += yoff;
-        RoNext(tail) = next; tail = next;
+        o = (RectObj*)cp(R, sizeof(RectObjST));
+        RoSTs(o) = (char*)cp(RoSTs(R),RoSTl(R)+1);
+        RoSTx(o) += x; RoSTy(o) += y;
         break;
-      case ROt_PTT: case ROt_LNT: case ROt_PTS:
-        next = (RectObj*) pari_malloc(sizeof(RectObjPN));
-        memcpy(next,R,sizeof(RectObjPN));
-        RoNext(tail) = next; tail = next;
+      default: /* ROt_PTT, ROt_LNT, ROt_PTS */
+        o = (RectObj*)cp(R, sizeof(RectObjPN));
         break;
     }
-    R=RoNext(R);
+    RoNext(tail) = o; tail = o;
   }
   RoNext(tail) = NULL; RTail(d) = tail;
 }
@@ -2127,19 +2115,18 @@ gen_rectdraw0(struct plot_eng *eng, long *w, long *x, long *y, long lw, double x
 /*                           RGB COLORS                                  */
 /*                                                                       */
 /*************************************************************************/
-#if 0
-/* generated from /etc/X11/rgb.txt by the following perl script */
+/* generated from /etc/X11/rgb.txt by the following perl script
 #!/usr/bin/perl
 while(<>)
 {
   ($hex, $name) = split(/\t\t/, $_);
-  $hex =~ s/^ +//; chomp($name); $name =~ s/ *//g;
+  $hex =~ s/^ +//; chomp($name); $name =~ s, *,,g;
   $hex = sprintf("0x%02x%02x%02x", split(/\s+/, $hex));
   $name = lc($name); next if ($done{$name});
   $done{$name} = 1;
   print "COL(\"$name\", $hex),\n";
 }
-#endif
+*/
 
 #define COL(x,y) {(void*)x,(void*)y,0,NULL}
 static hashentry col_list[] = {

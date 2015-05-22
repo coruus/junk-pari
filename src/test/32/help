@@ -15,6 +15,10 @@ new is aliased to:
 
 sin(x): sine of x.
 
+addii: installed function
+library name: addii
+prototype: GG
+
 test1
 
 test2
@@ -38,12 +42,13 @@ Help topics: for a list of relevant subtopics, type ?n for n in
   5: Functions related to ELLIPTIC CURVES
   6: Functions related to MODULAR FORMS and MODULAR SYMBOLS
   7: Functions related to general NUMBER FIELDS
-  8: POLYNOMIALS and power series
-  9: Vectors, matrices, LINEAR ALGEBRA and sets
- 10: SUMS, products, integrals and similar functions
- 11: GRAPHIC functions
- 12: PROGRAMMING under GP
- 13: The PARI community
+  8: Functions related to central simple ALGEBRAS
+  9: POLYNOMIALS and power series
+ 10: Vectors, matrices, LINEAR ALGEBRA and sets
+ 11: SUMS, products, integrals and similar functions
+ 12: GRAPHIC functions
+ 13: PROGRAMMING under GP
+ 14: The PARI community
 
 Also:
   ? functionname (short on-line help)
@@ -121,6 +126,8 @@ zkst : structure of (Z_K/m)*         bid,                     bnr
 cmp      divrem   lex      max      min      powers   shift    shiftmul
 sign     vecmax   vecmin   
 
+test6
+
 List of the PARI types:
   t_INT    : long integers     [ cod1 ] [ cod2 ] [ man_1 ] ... [ man_k ]
   t_REAL   : long real numbers [ cod1 ] [ cod2 ] [ man_1 ] ... [ man_k ]
@@ -140,7 +147,7 @@ List of the PARI types:
   t_VEC    : row vector        [ code ] [  x_1  ] ... [  x_k  ]
   t_COL    : column vector     [ code ] [  x_1  ] ... [  x_k  ]
   t_MAT    : matrix            [ code ] [ col_1 ] ... [ col_k ]
-  t_LIST   : list              [ code ] [ n ] [ nmax ][ vec ]
+  t_LIST   : list              [ cod1 ] [ cod2 ][ vec ]
   t_STR    : string            [ code ] [ man_1 ] ... [ man_k ]
   t_VECSMALL: vec. small ints  [ code ] [ x_1 ] ... [ x_k ]
   t_CLOSURE: functions [ code ] [ arity ] [ code ] [ operand ] [ data ] [ te
@@ -148,4 +155,10 @@ xt ]
   t_ERROR  : error context     [ code ] [ errnum ] [ dat_1 ] ... [ dat_k ]
   t_INFINITY: a*infinity       [ code ] [ a ]
 
-Total time spent: 0
+f =
+  ()->1
+
+g =
+  ()->0
+
+Total time spent: 4

@@ -30,6 +30,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 else\
   gerepilecoeffssp((pari_sp)z, tetpil, z+1, 2); }
 
+static void
+warn_coercion(GEN x, GEN y, GEN z)
+{
+  if (DEBUGLEVEL)
+   pari_warn(warner,"coercing quotient rings; moduli %Ps and %Ps -> %Ps",x,y,z);
+}
+
 static long
 kro_quad(GEN x, GEN y)
 {
@@ -243,6 +250,7 @@ gred_rfrac_simple(GEN n, GEN d)
   }
 
   cd = content(d);
+  while (typ(n) == t_POL && !degpol(n)) n = gel(n,2);
   cn = (typ(n) == t_POL && varn(n) == varn(d))? content(n): n;
   if (!gequal1(cd)) {
     d = RgX_Rg_div(d,cd);
@@ -682,6 +690,7 @@ addsub_polmod(GEN X, GEN Y, GEN x, GEN y, GEN(*op)(GEN,GEN))
   if (vx==vy) {
     pari_sp av;
     gel(z,1) = RgX_gcd(X,Y); av = avma;
+    warn_coercion(X,Y,gel(z,1));
     gel(z,2) = gerepileupto(av, gmod(op(x, y), gel(z,1))); return z;
   }
   if (varncmp(vx, vy) < 0)
@@ -953,6 +962,7 @@ gadd(GEN x, GEN y)
       if (X==Y || equalii(X,Y))
         return add_intmod_same(z, X, gel(x,2), gel(y,2));
       gel(z,1) = gcdii(X,Y);
+      warn_coercion(X,Y,gel(z,1));
       av = avma; p1 = addii(gel(x,2),gel(y,2));
       gel(z,2) = gerepileuptoint(av, remii(p1, gel(z,1))); return z;
     }
@@ -1257,6 +1267,7 @@ gsub(GEN x, GEN y)
       if (X==Y || equalii(X,Y))
         return sub_intmod_same(z, X, gel(x,2), gel(y,2));
       gel(z,1) = gcdii(X,Y);
+      warn_coercion(X,Y,gel(z,1));
       av = avma; p1 = subii(gel(x,2),gel(y,2));
       gel(z,2) = gerepileuptoint(av, modii(p1, gel(z,1))); return z;
     }
@@ -1563,6 +1574,7 @@ mul_polmod(GEN X, GEN Y, GEN x, GEN y)
   if (vx==vy) {
     pari_sp av;
     gel(z,1) = RgX_gcd(X,Y); av = avma;
+    warn_coercion(X,Y,gel(z,1));
     gel(z,2) = gerepileupto(av, gmod(gmul(x, y), gel(z,1)));
     return z;
   }
@@ -1833,7 +1845,9 @@ gmul(GEN x, GEN y)
       z = cgetg(3,t_INTMOD);
       if (X==Y || equalii(X,Y))
         return mul_intmod_same(z, X, gel(x,2), gel(y,2));
-      gel(z,1) = gcdii(X,Y); av = avma; p1 = mulii(gel(x,2),gel(y,2));
+      gel(z,1) = gcdii(X,Y);
+      warn_coercion(X,Y,gel(z,1));
+      av = avma; p1 = mulii(gel(x,2),gel(y,2));
       gel(z,2) = gerepileuptoint(av, remii(p1, gel(z,1))); return z;
     }
     case t_FRAC:
@@ -2314,8 +2328,11 @@ div_scal_rfrac(GEN x, GEN y)
 {
   GEN y1 = gel(y,1), y2 = gel(y,2);
   pari_sp av = avma;
-  if (typ(y1) == t_POL && varn(y2) == varn(y1) && degpol(y1) > 0)
-    return gerepileupto(av, gred_rfrac_simple(gmul(x, y2), y1));
+  if (typ(y1) == t_POL && varn(y2) == varn(y1))
+  {
+    if (degpol(y1)) return gerepileupto(av, gred_rfrac_simple(gmul(x, y2), y1));
+    y1 = gel(y1,2);
+  }
   return RgX_Rg_mul(y2, gdiv(x,y1));
 }
 static GEN
@@ -2525,8 +2542,9 @@ gdiv(GEN x, GEN y)
       z = cgetg(3,t_INTMOD);
       if (X==Y || equalii(X,Y))
         return div_intmod_same(z, X, gel(x,2), gel(y,2));
-      gel(z,1) = gcdii(X,Y); av = avma;
-      p1 = mulii(gel(x,2), Fp_inv(gel(y,2), gel(z,1)));
+      gel(z,1) = gcdii(X,Y);
+      warn_coercion(X,Y,gel(z,1));
+      av = avma; p1 = mulii(gel(x,2), Fp_inv(gel(y,2), gel(z,1)));
       gel(z,2) = gerepileuptoint(av, remii(p1, gel(z,1))); return z;
     }
     case t_FRAC: {
@@ -2670,7 +2688,11 @@ gdiv(GEN x, GEN y)
         return gerepile(av, tetpil, gdiv(p2,p1));
     }
   }
-  if (gequal0(y) && ty != t_MAT) pari_err_INV("gdiv",y);
+  if (gequal0(y))
+  {
+    if (is_matvec_t(tx) && lg(x) == 1) return gcopy(x);
+    if (ty != t_MAT) pari_err_INV("gdiv",y);
+  }
 
   if (is_const_t(tx) && is_const_t(ty)) switch(tx)
   {
@@ -3012,12 +3034,16 @@ gmulsg(long s, GEN y)
 GEN
 gdivgs(GEN x, long s)
 {
-  long lx, i;
+  long tx = typ(x), lx, i;
   pari_sp av;
   GEN z, y, p1;
 
-  if (!s) pari_err_INV("gdivgs",gen_0);
-  switch(typ(x))
+  if (!s)
+  {
+    if (is_matvec_t(tx) && lg(x) == 1) return gcopy(x);
+    pari_err_INV("gdivgs",gen_0);
+  }
+  switch(tx)
   {
     case t_INT:
       av = avma; z = divis_rem(x,s,&i);
@@ -3330,15 +3356,9 @@ ginv(GEN x)
         togglesign(gel(y,2));
       return y;
     case t_MAT:
-    {
-      GEN ff = NULL;
-      if (RgM_is_FFM(x,&ff))
-        y = FFM_inv(x, ff);
-      else
-        y = RgM_inv(x);
+      y = RgM_inv(x);
       if (!y) pari_err_INV("ginv",x);
       return y;
-    }
     case t_VECSMALL:
     {
       long i, lx = lg(x)-1;

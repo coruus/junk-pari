@@ -74,6 +74,9 @@ my_int(char *s)
       case 'k': case 'K': n = safe_mul(n,1000UL);       p++; break;
       case 'm': case 'M': n = safe_mul(n,1000000UL);    p++; break;
       case 'g': case 'G': n = safe_mul(n,1000000000UL); p++; break;
+#ifdef LONG_IS_64BIT
+      case 't': case 'T': n = safe_mul(n,1000000000000UL); p++; break;
+#endif
     }
     if (!n) pari_err(e_SYNTAX,"integer too large",s,s);
   }
@@ -202,11 +205,12 @@ sd_realprecision(const char *v, long flag)
   pariout_t *fmt = GP_DATA->fmt;
   if (v)
   {
-    ulong newnb = fmt->sigd, prec;
+    ulong newnb = fmt->sigd;
+    long prec;
     sd_ulong_init(v, "realprecision", &newnb, 1, prec2ndec(LGBITS));
     if (fmt->sigd == (long)newnb) return gnil;
     if (fmt->sigd >= 0) fmt->sigd = newnb;
-    prec = (ulong)ndec2prec(newnb);
+    prec = ndec2prec(newnb);
     if (prec == precreal) return gnil;
     precreal = prec;
   }
@@ -712,15 +716,13 @@ compare_name(const void *s1, const void *s2) {
   entree *e1 = *(entree**)s1, *e2 = *(entree**)s2;
   return strcmp(e1->name, e2->name);
 }
-/* return all entries with class '17' */
 static void
 defaults_list(pari_stack *s)
 {
   entree *ep;
   long i;
   for (i = 0; i < functions_tblsz; i++)
-    for (ep = defaults_hash[i]; ep; ep = ep->next)
-      if (ep->menu == 17) pari_stack_pushp(s, ep);
+    for (ep = defaults_hash[i]; ep; ep = ep->next) pari_stack_pushp(s, ep);
 }
 /* ep associated to function f of arity 2. Call f(v,flag) */
 static GEN
@@ -742,7 +744,7 @@ setdefault(const char *s, const char *v, long flag)
     pari_stack_delete(&st);
     return gnil;
   }
-  ep = is_entry_intern(s, defaults_hash, NULL);
+  ep = pari_is_default(s);
   if (!ep)
   {
     pari_err(e_MISC,"unknown default: %s",s);
@@ -750,9 +752,6 @@ setdefault(const char *s, const char *v, long flag)
   }
   return call_f2(ep, v, flag);
 }
-int
-pari_is_default(const char *s)
-{ return !!is_entry_intern(s, defaults_hash, NULL); }
 
 GEN
 default0(const char *a, const char *b) { return setdefault(a,b, b? d_SILENT: d_RETURN); }

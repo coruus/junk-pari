@@ -674,8 +674,9 @@ upowuu(ulong p, ulong k)
     q *= q ;
     return odd(k)? q*p: q;
   }
-#endif
+#else
   return 0;
+#endif
 }
 
 typedef struct {
@@ -1139,6 +1140,10 @@ gpow(GEN x, GEN n, long prec)
 
     case t_FFELT:
       return gerepileupto(av,FF_pow(FF_sqrtn(x,d,NULL),a));
+    default:
+      if (gequal(d, gen_2))
+        return gerepileupto(av, gmul(powgi(x, shifti(subis(a, 1), -1)),
+                                     gsqrt(x, prec)));
     }
   }
   i = (long) precision(n); if (i) prec=i;
@@ -1644,6 +1649,18 @@ sqrtnint(GEN a, long n)
   return gerepileuptoleaf(ltop, x);
 }
 
+GEN
+cbrtr_abs(GEN x)
+{
+  long prec = realprec(x), n = bit_accuracy(prec), e = expo(x), er = e / 3;
+  /* x 2^3(n-er) = b t_INT */
+  GEN b = mantissa2nr(x, (e-3*er+1) + n*2);
+  b = sqrtnint(b, 3);
+  b = itor(b, prec);
+  setexpo(b, expo(b)+er-n);
+  return b;
+}
+
 ulong
 usqrtn(ulong a, ulong n)
 {
@@ -1734,7 +1751,15 @@ gsqrtn(GEN x, GEN n, GEN *zetan, long prec)
         y = real_0_bit(b);
     }
     else
-      y = gerepileupto(av, gexp(gdiv(glog(x,prec), n), prec));
+    {
+      long nn = itos_or_0(n);
+      if (tx == t_INT) { x = itor(x,prec); tx = t_REAL; }
+      if (nn > 0 && tx == t_REAL && signe(x) > 0)
+        y = sqrtnr(x, nn);
+      else
+        y = gexp(gdiv(glog(x,prec), n), prec);
+      y = gerepileupto(av, y);
+    }
     if (zetan) *zetan = rootsof1complex(n,prec);
     return y;
 
@@ -2221,7 +2246,7 @@ zellagmcx(GEN a0, GEN b0, GEN r, GEN t, long prec)
 static GEN
 agm1(GEN x, long prec)
 {
-  GEN p1, a, a1, b1, y;
+  GEN p1, a1, b1, y;
   long l, l2, ep;
   pari_sp av;
 
@@ -2243,9 +2268,10 @@ agm1(GEN x, long prec)
       a1 = x; b1 = gen_1; l = precp(x);
       do
       {
-        a = a1;
+        GEN a = a1;
         a1 = gmul2n(gadd(a,b1),-1);
-        b1 = Qp_sqrt(gmul(a,b1));
+        a = gmul(a,b1);
+        b1 = Qp_sqrt(a); if (!b1) pari_err_SQRTN("Qp_sqrt",a);
         p1 = gsub(b1,a1); ep = valp(p1)-valp(b1);
         if (ep<=0) { b1 = gneg_i(b1); p1 = gsub(b1,a1); ep=valp(p1)-valp(b1); }
       }
@@ -2258,7 +2284,7 @@ agm1(GEN x, long prec)
       l2 = 5-prec2nbits(prec);
       do
       {
-        a = a1;
+        GEN a = a1;
         a1 = gmul2n(gadd(a,b1),-1);
         b1 = gsqrt(gmul(a,b1), prec);
         p1 = gsub(b1,a1); ep = valp(p1)-valp(b1);
@@ -2657,7 +2683,7 @@ mpcosm1(GEN x, long *ptmod8)
       q = floorr( divrr(z,pitemp) ); /* round ( x / (Pi/2) ) */
       p = l+EXTRAPRECWORD; x = rtor(x,p);
     } else {
-      q = stoi((long)floor(rtodbl(x) / (PI/2) + 0.5));
+      q = stoi((long)floor(rtodbl(x) / (M_PI/2) + 0.5));
       p = l;
     }
     if (signe(q))
@@ -3088,6 +3114,75 @@ gsincos(GEN x, GEN *s, GEN *c, long prec)
       return;
   }
   pari_err_TYPE("gsincos",x);
+}
+
+/********************************************************************/
+/**                                                                **/
+/**                              SINC                              **/
+/**                                                                **/
+/********************************************************************/
+static GEN
+mpsinc(GEN x)
+{
+  pari_sp av = avma;
+  GEN s, c;
+
+  if (!signe(x)) {
+    long l = nbits2prec(-expo(x));
+    if (l < LOWDEFAULTPREC) l = LOWDEFAULTPREC;
+    return real_1(l);
+  }
+
+  mpsincos(x,&s,&c);
+  return gerepileuptoleaf(av, divrr(s,x));
+}
+
+GEN
+gsinc(GEN x, long prec)
+{
+  pari_sp av;
+  GEN r, u, v, y, u1, v1;
+  long i;
+
+  switch(typ(x))
+  {
+    case t_REAL: return mpsinc(x);
+    case t_COMPLEX:
+      if (isintzero(gel(x,1)))
+      {
+        av = avma;
+        return gerepileuptoleaf(av,gdiv(gsinh(gel(x,2),prec),gel(x,2)));
+      }
+      i = precision(x); if (!i) i = prec;
+      y = cgetc(i); av = avma;
+      r = gexp(gel(x,2),prec);
+      v1 = gmul2n(addrr(invr(r),r), -1); /* = cos(I*Im(x)) */
+      u1 = subrr(r, v1); /* = I*sin(I*Im(x)) */
+      gsincos(gel(x,1),&u,&v,prec);
+      affc_fixlg(gdiv(mkcomplex(gmul(v1,u), gmul(u1,v)), x), y);
+      avma = av; return y;
+
+    case t_INT:
+      if (!signe(x)) return real_1(prec); /*fall through*/
+    case t_FRAC:
+      y = cgetr(prec); av = avma;
+      affrr_fixlg(mpsinc(tofp_safe(x,prec)), y); avma = av; return y;
+
+    case t_PADIC:
+      if (gequal0(x)) return cvtop(gen_1, gel(x,2), valp(x));
+      av = avma; y = sin_p(x);
+      if (!y) pari_err_DOMAIN("gsinc(t_PADIC)","argument","",gen_0,x);
+      return gerepileuptoleaf(av,gdiv(y,x));
+
+    default:
+      av = avma; if (!(y = toser_i(x))) break;
+      if (gequal0(y)) return gerepileupto(av, gaddsg(1,y));
+      if (valp(y) < 0)
+        pari_err_DOMAIN("sinc","valuation", "<", gen_0, x);
+      gsincos(y,&u,&v,prec);
+      return gerepilecopy(av,gdiv(u,y));
+  }
+  return trans_eval("sinc",gsinc,x,prec);
 }
 
 /********************************************************************/

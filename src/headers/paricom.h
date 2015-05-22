@@ -62,8 +62,8 @@ extern const long CATCH_ALL;
 #define pari_ENDCATCH pari_ENDCATCH2(__iferr_old)
 
 extern const double LOG2, LOG10_2, LOG2_10;
-#ifndef  PI
-#  define PI (3.141592653589)
+#ifndef  M_PI
+#  define M_PI 3.14159265358979323846
 #endif
 
 /* Common global variables: */
@@ -83,21 +83,14 @@ extern int  (*cb_pari_whatnow)(PariOUT *out, const char *, int);
 extern void (*cb_pari_quit)(long);
 extern void (*cb_pari_sigint)(void);
 extern int (*cb_pari_handle_exception)(long);
+extern int (*cb_pari_err_handle)(GEN);
 extern void (*cb_pari_pre_recover)(long);
 extern void (*cb_pari_err_recover)(long);
 extern int (*cb_pari_break_loop)(int);
 extern int (*cb_pari_is_interactive)(void);
 extern void (*cb_pari_start_output)(void);
 extern const char *pari_library_path;
-
-enum manage_var_t {
-  manage_var_create,
-  manage_var_delete,
-  manage_var_init,
-  manage_var_next,
-  manage_var_max_avail,
-  manage_var_pop
-};
+extern long *varpriority;
 
 /* pari_init_opts */
 enum {

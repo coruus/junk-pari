@@ -70,14 +70,23 @@ ZG_Z_mul(GEN x, GEN c)
 GEN
 ZG_mul(GEN x, GEN y)
 {
+  pari_sp av;
   GEN z, XG, XE;
   long i, l;
   if (typ(x) == t_INT) return ZG_Z_mul(y, x);
   if (typ(y) == t_INT) return ZG_Z_mul(x, y);
+  av = avma;
   XG = gel(x,1); XE = gel(x,2); l = lg(XG);
   z = ZG_Z_mul(G_ZG_mul(gel(XG,1), y), gel(XE,1));
   for (i = 2; i < l; i++)
+  {
     z = ZG_add(z, ZG_Z_mul(G_ZG_mul(gel(XG,i), y), gel(XE,i)));
+    if (gc_needed(av,3))
+    {
+      if(DEBUGMEM>1) pari_warn(warnmem,"ZG_mul, i = %ld/%ld",i,l-1);
+      z = gerepilecopy(av, z);
+    }
+  }
   return z;
 }
 #if 0
@@ -107,7 +116,7 @@ ZG_G_mul(GEN x, GEN y)
   X = gel(x,1);
   z = cgetg_copy(X, &l);
   for (i = 1; i < l; i++) gel(z,i) = gmul(gel(X,i), y);
-  return ZG_normalize( mkmat2(z, gel(x,2)) );
+  return ZG_normalize( mkmat2(z, shallowcopy(gel(x,2))) );
 }
 GEN
 G_ZG_mul(GEN x, GEN y)
@@ -118,7 +127,7 @@ G_ZG_mul(GEN x, GEN y)
   Y = gel(y,1);
   z = cgetg_copy(Y, &l);
   for (i = 1; i < l; i++) gel(z,i) = gmul(x, gel(Y,i));
-  return ZG_normalize( mkmat2(z, gel(y,2)) );
+  return ZG_normalize( mkmat2(z, shallowcopy(gel(y,2))) );
 }
 GEN
 ZGC_G_mul(GEN v, GEN x)

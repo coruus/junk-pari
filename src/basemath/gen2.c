@@ -64,6 +64,13 @@ map_proto_lGL(long f(GEN,long), GEN x, long y)
   return stoi(f(x,y));
 }
 
+static GEN
+_domul(void *data, GEN x, GEN y)
+{
+  GEN (*mul)(GEN,GEN)=(GEN (*)(GEN,GEN)) data;
+  return mul(x,y);
+}
+
 GEN
 gassoc_proto(GEN f(GEN,GEN), GEN x, GEN y)
 {
@@ -78,7 +85,8 @@ gassoc_proto(GEN f(GEN,GEN), GEN x, GEN y)
       case t_COL: break;
       default: pari_err_TYPE("association",x);
     }
-    return gerepileupto(av, divide_conquer_prod(x,f));
+    return gerepileupto(av, gen_product(x, (void *)f, _domul));
+
   }
   return f(x,y);
 }
@@ -335,7 +343,7 @@ static int
 is_monomial_test(GEN x, long v, int(*test)(GEN))
 {
   long d, i, l;
-  if (!signe(x)) return 0;
+  if (!signe(x)) return (typ(x) == t_SER && v <= 0);
   if (v > 0) return 0;
   l = lg(x); d = 2-v;
   if (l <= d) return 0;
@@ -351,7 +359,7 @@ static int
 col_test(GEN x, int(*test)(GEN))
 {
   long i, l = lg(x);
-  if (l == 1) return 0;
+  if (l == 1) return 1;
   if (!test(gel(x,1))) return 0;
   for (i = 2; i < l; i++)
     if (!gequal0(gel(x,i))) return 0;
@@ -383,8 +391,11 @@ gequal1(GEN x)
       return equali1(x);
 
     case t_REAL:
-      return signe(x) > 0 ? absrnz_equal1(x): 0;
-
+    {
+      long s = signe(x);
+      if (!s) return expo(x) >= 0;
+      return s > 0 ? absrnz_equal1(x): 0;
+    }
     case t_INTMOD: case t_POLMOD:
       return gequal1(gel(x,2));
 
@@ -427,8 +438,11 @@ gequalm1(GEN x)
       return equalim1(x);
 
     case t_REAL:
-      return signe(x) < 0 ? absrnz_equal1(x): 0;
-
+    {
+      long s = signe(x);
+      if (!s) return expo(x) >= 0;
+      return s < 0 ? absrnz_equal1(x): 0;
+    }
     case t_INTMOD:
       av=avma; y=equalii(addsi(1,gel(x,2)), gel(x,1)); avma=av; return y;
 
@@ -522,12 +536,27 @@ cmp_universal(GEN x, GEN y)
       return cmp_universal_rec(x, y, 2);
 
     case t_LIST:
-      x = list_data(x);
-      y = list_data(y);
-      if (!x) return y? -1: 0;
-      if (!y) return 1;
-      return cmp_universal_rec(x, y, 1);
-
+      {
+        long tx = list_typ(x), ty = list_typ(y);
+        GEN vx, vy;
+        if (tx < ty) return -1;
+        if (tx > ty) return 1;
+        vx = list_data(x);
+        vy = list_data(y);
+        if (!vx) return vy? -1: 0;
+        if (!vy) return 1;
+        switch (tx)
+        {
+        case t_LIST_MAP:
+          {
+            pari_sp av = avma;
+            int ret = cmp_universal_rec(maptomat_shallow(x), maptomat_shallow(y),1);
+            avma = av; return ret;
+          }
+        default:
+          return cmp_universal_rec(vx, vy, 1);
+        }
+      }
     default:
       return cmp_universal_rec(x, y, lontyp[tx]);
   }
@@ -558,6 +587,13 @@ cmprfrac(GEN a, GEN y)
   int r = cmpri(mulri(a, d), c);
   avma = av; return r;
 }
+static int
+cmpgen(GEN x, GEN y)
+{
+  pari_sp av = avma;
+  int s = gsigne(gsub(x,y));
+  avma = av; return s;
+}
 
 /* returns the sign of x - y when it makes sense. 0 otherwise */
 int
@@ -571,6 +607,7 @@ gcmp(GEN x, GEN y)
       case t_INT:  return cmpii(x, y);
       case t_REAL: return cmprr(x, y);
       case t_FRAC: return cmpfrac(x, y);
+      case t_QUAD: return cmpgen(x, y);
       case t_STR:  return cmp_str(GSTR(x), GSTR(y));
       case t_INFINITY:
       {
@@ -580,6 +617,7 @@ gcmp(GEN x, GEN y)
         return 0;
       }
     }
+  if (ty == t_INFINITY) return -inf_get_sign(y);
   switch(tx)
   {
     case t_INT:
@@ -587,7 +625,7 @@ gcmp(GEN x, GEN y)
       {
         case t_REAL: return cmpir(x, y);
         case t_FRAC: return cmpifrac(x, y);
-        case t_INFINITY: return inf_get_sign(y) == 1? -1: 1;
+        case t_QUAD: return cmpgen(x, y);
       }
       break;
     case t_REAL:
@@ -595,7 +633,7 @@ gcmp(GEN x, GEN y)
       {
         case t_INT:  return cmpri(x, y);
         case t_FRAC: return cmprfrac(x, y);
-        case t_INFINITY: return inf_get_sign(y) == 1? -1: 1;
+        case t_QUAD: return cmpgen(x, y);
       }
       break;
     case t_FRAC:
@@ -603,10 +641,12 @@ gcmp(GEN x, GEN y)
       {
         case t_INT:  return -cmpifrac(y, x);
         case t_REAL: return -cmprfrac(y, x);
-        case t_INFINITY: return inf_get_sign(y) == 1? -1: 1;
+        case t_QUAD: return cmpgen(x, y);
       }
       break;
-    case t_INFINITY: return inf_get_sign(x) == 1? 1: -1;
+    case t_QUAD:
+      return cmpgen(x, y);
+    case t_INFINITY: return inf_get_sign(x);
   }
   pari_err_TYPE2("comparison",x,y);
   return 0;/*not reached*/
@@ -828,6 +868,31 @@ closure_identical(GEN x, GEN y)
   return gidentical(gel(x,7),gel(y,7));
 }
 
+static int
+list_cmp(GEN x, GEN y, int cmp(GEN x, GEN y))
+{
+  int t = list_typ(x);
+  GEN vx, vy;
+  if (list_typ(y)!=t) return 0;
+  vx = list_data(x);
+  vy = list_data(y);
+  if (!vx) return vy? 0: 1;
+  if (!vy) return 0;
+  if (lg(vx) != lg(vy)) return 0;
+  switch (t)
+  {
+  case t_LIST_MAP:
+    {
+      pari_sp av = avma;
+      GEN mx  = maptomat_shallow(x), my = maptomat_shallow(y);
+      int ret = gidentical(gel(mx, 1), gel(my, 1)) && cmp(gel(mx, 2), gel(my, 2));
+      avma = av; return ret;
+    }
+  default:
+    return cmp(vx, vy);
+  }
+}
+
 int
 gidentical(GEN x, GEN y)
 {
@@ -886,11 +951,7 @@ gidentical(GEN x, GEN y)
     case t_CLOSURE:
       return closure_identical(x,y);
     case t_LIST:
-      x = list_data(x);
-      y = list_data(y);
-      if (!x) return y? 0: 1;
-      if (!y) return 0;
-      return vecidentical(x, y);
+      return list_cmp(x, y, gidentical);
     case t_INFINITY: return gidentical(gel(x,1),gel(y,1));
   }
   return 0;
@@ -1000,11 +1061,7 @@ gequal(GEN x, GEN y)
       case t_VECSMALL:
         return zv_equal(x,y);
       case t_LIST:
-        x = list_data(x);
-        y = list_data(y);
-        if (!x) return y? 0: 1;
-        if (!y) return 0;
-        return gequal(x, y);
+        return list_cmp(x, y, gequal);
       case t_CLOSURE:
         return closure_identical(x,y);
       case t_INFINITY:
@@ -2468,7 +2525,7 @@ normalize(GEN x)
   if (lx == 2) { setsigne(x,0); return x; }
   if (lx == 3) {
     z = gel(x,2);
-    if (!gcmp0(z)) return x;
+    if (!gcmp0(z)) { setsigne(x,1); return x; }
     if (isrationalzero(z)) return zeroser(vx,vp+1);
     if (isexactzero(z)) {
       /* dangerous case: already normalized ? */
@@ -2557,6 +2614,21 @@ gsigne(GEN x)
   {
     case t_INT: case t_REAL: return signe(x);
     case t_FRAC: return signe(gel(x,1));
+    case t_QUAD:
+    {
+      pari_sp av = avma;
+      GEN T = gel(x,1), a = gel(x,2), b = gel(x,3);
+      long sa, sb;
+      if (signe(gel(T,2)) > 0) break;
+      a = gmul2n(a,1);
+      if (signe(gel(T,3))) a = gadd(a,b);
+      /* a + b sqrt(D) > 0 ? */
+      sa = gsigne(a);
+      sb = gsigne(b); if (sa == sb) { avma = av; return sa; }
+      /* different signs, take conjugate expression */
+      sb = gsigne(gsub(gsqr(a), gmul(quad_disc(x), gsqr(b))));
+      avma = av; return sb * sa;
+    }
     case t_INFINITY: return inf_get_sign(x);
   }
   pari_err_TYPE("gsigne",x);
@@ -2591,7 +2663,7 @@ ensure_nb(GEN L, long l)
     v[0] = evaltyp(t_VEC) | _evallg(1);
   }
   list_data(L) = v;
-  list_nmax(L) = nmax;
+  L[1] = evaltyp(list_typ(L))|evallg(nmax);
 }
 
 void
@@ -2604,17 +2676,23 @@ listkill(GEN L)
     long i, l = lg(v);
     for (i=1; i<l; i++) gunclone_deep(gel(v,i));
     pari_free(v);
-    list_nmax(L) = 0;
+    L[1] = evaltyp(list_typ(L));
     list_data(L) = NULL;
   }
 }
 
 GEN
-listcreate(void)
+listcreate_typ(long t)
 {
   GEN L = cgetg(3,t_LIST);
-  list_nmax(L) = 0;
+  L[1] = evaltyp(t);
   list_data(L) = NULL; return L;
+}
+
+GEN
+listcreate(void)
+{
+  return listcreate_typ(t_LIST_RAW);
 }
 
 GEN
@@ -2623,11 +2701,11 @@ listput(GEN L, GEN x, long index)
   long l;
   GEN z;
 
-  if (typ(L) != t_LIST) pari_err_TYPE("listput",L);
   if (index < 0) pari_err_COMPONENT("listput", "<", gen_0, stoi(index));
   z = list_data(L);
   l = z? lg(z): 1;
 
+  x = gclone(x);
   if (!index || index >= l)
   {
     ensure_nb(L, l);
@@ -2636,9 +2714,17 @@ listput(GEN L, GEN x, long index)
     l++;
   } else
     gunclone_deep( gel(z, index) );
-  gel(z,index) = gclone(x);
+  gel(z,index) = x;
   z[0] = evaltyp(t_VEC) | evallg(l); /*must be after gel(z,index) is set*/
   return gel(z,index);
+}
+
+GEN
+listput0(GEN L, GEN x, long index)
+{
+  if (typ(L) != t_LIST || list_typ(L) != t_LIST_RAW)
+    pari_err_TYPE("listput",L);
+  return listput(L, x, index);
 }
 
 GEN
@@ -2647,15 +2733,19 @@ listinsert(GEN L, GEN x, long index)
   long l, i;
   GEN z;
 
-  if (typ(L) != t_LIST) pari_err_TYPE("listinsert",L);
+  if (typ(L) != t_LIST || list_typ(L) != t_LIST_RAW)
+    pari_err_TYPE("listinsert",L);
   z = list_data(L); l = z? lg(z): 1;
   if (index <= 0) pari_err_COMPONENT("listinsert", "<=", gen_0, stoi(index));
   if (index > l) pari_err_COMPONENT("listinsert", ">", stoi(l), stoi(index));
   ensure_nb(L, l);
+  BLOCK_SIGINT_START
   z = list_data(L);
   for (i=l; i > index; i--) gel(z,i) = gel(z,i-1);
   z[0] = evaltyp(t_VEC) | evallg(l+1);
-  return gel(z,index) = gclone(x);
+  gel(z,index) = gclone(x);
+  BLOCK_SIGINT_END
+  return gel(z,index);
 }
 
 void
@@ -2670,9 +2760,19 @@ listpop(GEN L, long index)
   if (!z || (l = lg(z)-1) == 0) return;
 
   if (!index || index > l) index = l;
+  BLOCK_SIGINT_START
   gunclone_deep( gel(z, index) );
   z[0] = evaltyp(t_VEC) | evallg(l);
   for (i=index; i < l; i++) z[i] = z[i+1];
+  BLOCK_SIGINT_END
+}
+
+void
+listpop0(GEN L, long index)
+{
+  if (typ(L) != t_LIST || list_typ(L) != t_LIST_RAW)
+    pari_err_TYPE("listpop",L);
+  listpop(L, index);
 }
 
 /* return a list with single element x, allocated on stack */

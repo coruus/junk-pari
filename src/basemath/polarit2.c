@@ -679,9 +679,10 @@ factor(GEN x)
 /*                                                                 */
 /*******************************************************************/
 static GEN
-normalized_mul(GEN x, GEN y)
+normalized_mul(void *E, GEN x, GEN y)
 {
   long a = gel(x,1)[1], b = gel(y,1)[1];
+  (void) E;
   return mkvec2(mkvecsmall(a + b),
                 RgX_mul_normalized(gel(x,2),a, gel(y,2),b));
 }
@@ -716,7 +717,7 @@ roots_to_pol(GEN a, long v)
   }
   if (i < lx) gel(L,k++) = mkvec2(mkvecsmall(1),
                                   scalarpol_shallow(gneg(gel(a,i)), v));
-  setlg(L, k); L = divide_conquer_prod(L, normalized_mul);
+  setlg(L, k); L = gen_product(L, NULL, normalized_mul);
   return gerepileupto(av, normalized_to_RgX(L));
 }
 
@@ -745,43 +746,9 @@ roots_to_pol_r1(GEN a, long v, long r1)
     GEN x1 = gneg(gtrace(s));
     gel(L,k++) = mkvec2(mkvecsmall(2), deg1pol_shallow(x1,x0,v));
   }
-  setlg(L, k); L = divide_conquer_prod(L, normalized_mul);
+  setlg(L, k); L = gen_product(L, NULL, normalized_mul);
   return gerepileupto(av, normalized_to_RgX(L));
 }
-
-GEN
-divide_conquer_assoc(GEN x, void *data, GEN (*mul)(void *,GEN,GEN))
-{
-  pari_sp ltop;
-  long i,k,lx = lg(x);
-
-  if (lx == 1) return gen_1;
-  if (lx == 2) return gcopy(gel(x,1));
-  x = leafcopy(x); k = lx;
-  ltop=avma;
-  while (k > 2)
-  {
-    if (DEBUGLEVEL>7)
-      err_printf("prod: remaining objects %ld\n",k-1);
-    lx = k; k = 1;
-    for (i=1; i<lx-1; i+=2)
-      gel(x,k++) = mul(data,gel(x,i),gel(x,i+1));
-    if (i < lx) gel(x,k++) = gel(x,i);
-    if (gc_needed(ltop,1))
-      gerepilecoeffs(ltop,x+1,k-1);
-  }
-  return gel(x,1);
-}
-
-static GEN
-_domul(void *data, GEN x, GEN y)
-{
-  GEN (*mul)(GEN,GEN)=(GEN (*)(GEN,GEN)) data;
-  return mul(x,y);
-}
-GEN
-divide_conquer_prod(GEN x, GEN (*mul)(GEN,GEN))
-{ return divide_conquer_assoc(x, (void *)mul, _domul); }
 
 /*******************************************************************/
 /*                                                                 */
@@ -828,7 +795,7 @@ gen_factorback(GEN L, GEN e, GEN (*_mul)(void*,GEN,GEN),
     switch(typ(L)) {
       case t_VEC:
       case t_COL: /* product of the L[i] */
-        return gerepileupto(av, divide_conquer_assoc(L, data, _mul));
+        return gerepileupto(av, gen_product(L, data, _mul));
       case t_MAT: /* genuine factorization */
         l = lg(L);
         if (l == 1) return gen_1;
@@ -843,14 +810,30 @@ gen_factorback(GEN L, GEN e, GEN (*_mul)(void*,GEN,GEN),
   /* p = elts, e = expo */
   lx = lg(p);
   /* check whether e is an integral vector of correct length */
-  if (!is_vec_t(typ(e)) || lx != lg(e) || !RgV_is_ZV(e))
-    pari_err_TYPE("factorback [not an exponent vector]", e);
-  if (lx == 1) return gen_1;
-  x = cgetg(lx,t_VEC);
-  for (l=1,k=1; k<lx; k++)
-    if (signe(gel(e,k))) gel(x,l++) = _pow(data, gel(p,k), gel(e,k));
+  switch(typ(e))
+  {
+    case t_VECSMALL:
+      if (lx != lg(e))
+        pari_err_TYPE("factorback [not an exponent vector]", e);
+      if (lx == 1) return gen_1;
+      x = cgetg(lx,t_VEC);
+      for (l=1,k=1; k<lx; k++)
+        if (e[k]) gel(x,l++) = _pow(data, gel(p,k), stoi(e[k]));
+      break;
+    case t_VEC: case t_COL:
+      if (lx != lg(e) || !RgV_is_ZV(e))
+        pari_err_TYPE("factorback [not an exponent vector]", e);
+      if (lx == 1) return gen_1;
+      x = cgetg(lx,t_VEC);
+      for (l=1,k=1; k<lx; k++)
+        if (signe(gel(e,k))) gel(x,l++) = _pow(data, gel(p,k), gel(e,k));
+      break;
+    default:
+      pari_err_TYPE("factorback [not an exponent vector]", e);
+      return NULL;
+  }
   x[0] = evaltyp(t_VEC) | _evallg(l);
-  return gerepileupto(av, divide_conquer_assoc(x, data, _mul));
+  return gerepileupto(av, gen_product(x, data, _mul));
 }
 
 GEN
@@ -1541,16 +1524,16 @@ content(GEN x)
     }
 
     case t_VEC: case t_COL:
-      lx = lg(x); if (lx==1) return gen_1;
+      lx = lg(x); if (lx==1) return gen_0;
       break;
 
     case t_MAT:
     {
       long hx, j;
       lx = lg(x);
-      if (lx == 1) return gen_1;
+      if (lx == 1) return gen_0;
       hx = lgcols(x);
-      if (hx == 1) return gen_1;
+      if (hx == 1) return gen_0;
       if (lx == 2) { x = gel(x,1); lx = lg(x); break; }
       if (hx == 2) { x = row_i(x, 1, 1, lx-1); break; }
       c = content(gel(x,1));
@@ -1563,6 +1546,7 @@ content(GEN x)
     case t_POL: case t_SER:
       lx = lg(x); if (lx == 2) return gen_0;
       break;
+    case t_VECSMALL: return utoi(zv_content(x));
     case t_QFR: case t_QFI:
       lx = 4; break;
 
@@ -1704,6 +1688,8 @@ Q_denom(GEN x)
         if (D != gen_1) d = lcmii(d, D);
       }
       return gerepileuptoint(av, d);
+
+    case t_POLMOD: return Q_denom(gel(x,2));
   }
   pari_err_TYPE("Q_denom",x);
   return NULL; /* not reached */
@@ -2485,35 +2471,26 @@ resultant2(GEN x, GEN y)
   av = avma; return gerepileupto(av,det(sylvestermatrix_i(x,y)));
 }
 
-/* Let vx = main variable of x. Return a polynomial in variable 0:
- * if vx is 0 and v != 0, set *mx = 1 and replace vx by pol_x(MAXVARN)
- * if vx = v, copy x, set its main variable to 0 and return
- * if vx < v, return subst(x, v, pol_x(0))
- * if vx > v, return scalarpol(x, 0) */
+/* If x a t_POL, let vx = main variable of x; return a t_POL in variable v0:
+ * if vx <= v, return subst(x, v, pol_x(v0))
+ * if vx >  v, return scalarpol(x, v0) */
 static GEN
-fix_pol(GEN x, long v, long *mx)
+fix_pol(GEN x, long v, long v0)
 {
   long vx;
   if (typ(x) != t_POL) return x;
   vx = varn(x);
   if (v == vx)
   {
-    if (v) { x = leafcopy(x); setvarn(x, 0); }
+    if (v) { x = leafcopy(x); setvarn(x, v0); }
     return x;
-  }
-  if (!vx)
-  {
-    *mx = 1;
-    x = poleval(x, pol_x(MAXVARN));
-    vx = varn(x);
-    if (v == vx) { setvarn(x, 0); return x; }
   }
   if (varncmp(v, vx) > 0)
   {
-    x = gsubst(x,v,pol_x(0));
-    if (typ(x) == t_POL && varn(x) == 0) return x;
+    x = gsubst(x,v,pol_x(v0));
+    if (typ(x) == t_POL && varn(x) == v0) return x;
   }
-  return scalarpol_shallow(x, 0);
+  return scalarpol_shallow(x, v0);
 }
 
 /* resultant of x and y with respect to variable v, or with respect to their
@@ -2521,13 +2498,14 @@ fix_pol(GEN x, long v, long *mx)
 GEN
 polresultant0(GEN x, GEN y, long v, long flag)
 {
-  long m = 0;
+  long v0 = 0;
   pari_sp av = avma;
 
   if (v >= 0)
   {
-    x = fix_pol(x,v, &m);
-    y = fix_pol(y,v, &m);
+    v0 = fetch_var_higher();
+    x = fix_pol(x,v, v0);
+    y = fix_pol(y,v, v0);
   }
   switch(flag)
   {
@@ -2536,30 +2514,26 @@ polresultant0(GEN x, GEN y, long v, long flag)
     case 1: x=resultant2(x,y); break;
     default: pari_err_FLAG("polresultant");
   }
-  if (m) x = gsubst(x,MAXVARN,pol_x(0));
+  if (v >= 0) (void)delete_var();
   return gerepileupto(av,x);
 }
 GEN
 polresultantext0(GEN x, GEN y, long v)
 {
   GEN R, U, V;
-  long m = 0;
+  long v0 = 0;
   pari_sp av = avma;
 
   if (v >= 0)
   {
-    x = fix_pol(x,v, &m);
-    y = fix_pol(y,v, &m);
+    v0 = fetch_var_higher();
+    x = fix_pol(x,v, v0);
+    y = fix_pol(y,v, v0);
   }
   R = subresext_i(x,y, &U,&V);
-  if (m)
+  if (v >= 0)
   {
-    U = gsubst(gsubst(U, 0, pol_x(v)), MAXVARN, pol_x(0));
-    V = gsubst(gsubst(V, 0, pol_x(v)), MAXVARN, pol_x(0));
-    R = gsubst(R,MAXVARN,pol_x(0));
-  }
-  else if (v >= 0)
-  {
+    (void)delete_var();
     if (typ(U) == t_POL && varn(U) != v) U = poleval(U, pol_x(v));
     if (typ(V) == t_POL && varn(V) != v) V = poleval(V, pol_x(v));
   }
@@ -2584,7 +2558,7 @@ GEN
 RgXQ_charpoly(GEN x, GEN T, long v)
 {
   pari_sp av = avma;
-  long d = degpol(T), dx, vx, vp;
+  long d = degpol(T), dx, vx, vp, v0;
   GEN ch, L;
 
   if (typ(x) != t_POL) return caract_const(av, x, v, d);
@@ -2596,17 +2570,13 @@ RgXQ_charpoly(GEN x, GEN T, long v)
   if (dx <= 0)
     return dx? monomial(gen_1, d, v): caract_const(av, gel(x,2), v, d);
 
+  v0 = fetch_var_higher();
   x = RgX_neg(x);
-  if (varn(x) == MAXVARN) { setvarn(x, 0); T = leafcopy(T); setvarn(T, 0); }
-  gel(x,2) = gadd(gel(x,2), pol_x(MAXVARN));
+  gel(x,2) = gadd(gel(x,2), pol_x(v));
+  setvarn(x, v0);
+  T = leafcopy(T); setvarn(T, v0);
   ch = resultant_all(T, x, NULL);
-  if (v != MAXVARN)
-  {
-    if (typ(ch) == t_POL && varn(ch) == MAXVARN)
-      setvarn(ch, v);
-    else
-      ch = gsubst(ch, MAXVARN, pol_x(v));
-  }
+  (void)delete_var();
   /* test for silly input: x mod (deg 0 polynomial) */
   if (typ(ch) != t_POL) { avma = av; return pol_1(v); }
 
@@ -2828,18 +2798,23 @@ RgX_disc(GEN x) { pari_sp av = avma; return gerepileupto(av, RgX_disc_aux(x)); }
 GEN
 poldisc0(GEN x, long v)
 {
-  long i;
   pari_sp av;
-  GEN z, D;
-
   switch(typ(x))
   {
     case t_POL:
-      av = avma; i = 0;
-      if (v >= 0 && v != varn(x)) x = fix_pol(x,v, &i);
+    {
+      GEN D;
+      long v0 = -1;
+      av = avma;
+      if (v >= 0 && v != varn(x))
+      {
+        v0 = fetch_var_higher();
+        x = fix_pol(x,v, v0);
+      }
       D = RgX_disc_aux(x);
-      if (i) D = gsubst(D, MAXVARN, pol_x(0));
+      if (v0 >= 0) (void)delete_var();
       return gerepileupto(av, D);
+    }
 
     case t_COMPLEX:
       return utoineg(4);
@@ -2853,9 +2828,12 @@ poldisc0(GEN x, long v)
       av = avma; return gerepileuptoint(av, qfb_disc(x));
 
     case t_VEC: case t_COL: case t_MAT:
-      z = cgetg_copy(x, &i);
+    {
+      long i;
+      GEN z = cgetg_copy(x, &i);
       for (i--; i; i--) gel(z,i) = poldisc0(gel(x,i), v);
       return z;
+    }
   }
   pari_err_TYPE("poldisc",x);
   return NULL; /* not reached */

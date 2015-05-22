@@ -19,14 +19,41 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 #include "pari.h"
 #include "paripriv.h"
 
+/* Implementation of Kedlaya Algorithm for counting point on hyperelliptic
+curves by Bill Allombert based on a GP script by Bernadette Perrin-Riou.
+
+References:
+Pierrick Gaudry and Nicolas G\"urel
+Counting Points in Medium Characteristic Using Kedlaya's Algorithm
+Experiment. Math.  Volume 12, Number 4 (2003), 395-402.
+   http://projecteuclid.org/euclid.em/1087568016
+
+Harrison, M. An extension of Kedlaya's algorithm for hyperelliptic
+  curves. Journal of Symbolic Computation, 47 (1) (2012), 89-101.
+  http://arxiv.org/pdf/1006.4206v3.pdf
+*/
+
+/* We use the basis of differentials (x^i*dx/y^k) (i=1 to 2*g-1),
+   with k either 1 or 3, depending on p and d, see Harrison paper */
+
+static long
+get_basis(long p, long d)
+{
+  if (odd(d))
+    return p < d-1 ? 3 : 1;
+  else
+    return 2*p <= d-2 ? 3 : 1;
+}
+
 static GEN
 FpXXQ_red(GEN S, GEN T, GEN p)
 {
   pari_sp av = avma;
-  long dS = degpol(S);
-  GEN A = cgetg(dS+3, t_POL);
-  GEN C = pol_0(varn(T));
-  long i;
+  long i, dS = degpol(S);
+  GEN A, C;
+  if (signe(S)==0) return pol_0(varn(T));
+  A = cgetg(dS+3, t_POL);
+  C = pol_0(varn(T));
   for(i=dS; i>0; i--)
   {
     GEN Si = FpX_add(C, gel(S,i+2), p);
@@ -43,10 +70,9 @@ static GEN
 FpXXQ_sqr(GEN x, GEN T, GEN p)
 {
   pari_sp av = avma;
-  GEN z, kx;
   long n = degpol(T);
-  kx = ZXX_to_Kronecker(x, n);
-  z = Kronecker_to_ZXX(FpX_sqr(kx, p), n, varn(T));
+  GEN z = FpX_red(ZXX_sqr_Kronecker(x, n), p);
+  z = Kronecker_to_ZXX(z, n, varn(T));
   return gerepileupto(av, FpXXQ_red(z, T, p));
 }
 
@@ -54,11 +80,9 @@ static GEN
 FpXXQ_mul(GEN x, GEN y, GEN T, GEN p)
 {
   pari_sp av = avma;
-  GEN z, kx, ky;
   long n = degpol(T);
-  kx = ZXX_to_Kronecker(x, n);
-  ky = ZXX_to_Kronecker(y, n);
-  z = Kronecker_to_ZXX(FpX_mul(ky,kx,p), n, varn(T));
+  GEN z = FpX_red(ZXX_mul_Kronecker(x, y, n), p);
+  z = Kronecker_to_ZXX(z, n, varn(T));
   return gerepileupto(av, FpXXQ_red(z, T, p));
 }
 
@@ -78,7 +102,7 @@ ZpXXQ_invsqrt(GEN S, GEN T, ulong p, long e)
     long n2 = n;
     n<<=1; if (mask & 1) n--;
     mask >>= 1;
-    q = powuu(p,n), q2 = powuu(p,n2);
+    q = powuu(p,n); q2 = powuu(p,n2);
     f = RgX_sub(FpXXQ_mul(S, FpXXQ_sqr(a, T, q), T, q), pol_1(v));
     fq = ZXX_Z_divexact(f, q2);
     q22 = shifti(addis(q2,1),-1);
@@ -123,7 +147,7 @@ frac_to_Fp(GEN a, GEN b, GEN p)
 }
 
 static GEN
-ZpXXQ_frob(GEN S, GEN U, GEN V, GEN T, ulong p, long e)
+ZpXXQ_frob(GEN S, GEN U, GEN V, long k, GEN T, ulong p, long e)
 {
   pari_sp av = avma, av2;
   long i, pr = degpol(S), dT = degpol(T);
@@ -131,7 +155,7 @@ ZpXXQ_frob(GEN S, GEN U, GEN V, GEN T, ulong p, long e)
   GEN Tp = FpX_deriv(T, q), Tp1 = RgX_shift_shallow(Tp, 1);
   GEN M = gel(S,pr+2), R;
   av2 = avma;
-  for(i = pr-1; i>=0; i--)
+  for(i = pr-1; i>=k; i--)
   {
     GEN A, B, H, Bc;
     ulong v, r;
@@ -268,19 +292,18 @@ static GEN
 ZlX_hyperellpadicfrobenius(GEN H, ulong p, long n)
 {
   pari_sp av = avma;
-  long N, i, d, g;
+  long k, N, i, d;
   GEN F, s, Q, pN1, U, V;
   pari_timer ti;
   if (typ(H) != t_POL) pari_err_TYPE("hyperellpadicfrobenius",H);
   if (p == 2) is_sing(H, 2);
-  d = degpol(H); g = ((d-1)>>1)*2;
-  if (d < 0 || !odd(d))
-    pari_err_DOMAIN("hyperellpadicfrobenius","H","degree % 2 = ", gen_0, H);
-  if (p < (ulong) d)
-    pari_err_DOMAIN("hyperellpadicfrobenius","p","<", utoi(d), utoi(p));
+  d = degpol(H);
+  if (d <= 0)
+    pari_err_CONSTPOL("hyperellpadicfrobenius");
   if (n < 1)
     pari_err_DOMAIN("hyperellpadicfrobenius","n","<", gen_1, utoi(n));
-  N = n + logint0(stoi(2*n), stoi(p), NULL);
+  k = get_basis(p, d);
+  N = n + logint(stoi(2*n), stoi(p), NULL);
   pN1 = powuu(p,N+1);
   Q = RgX_to_FpX(H, pN1);
   if (dvdiu(leading_term(Q),p)) is_sing(H, p);
@@ -289,18 +312,20 @@ ZlX_hyperellpadicfrobenius(GEN H, ulong p, long n)
   s = revdigits(FpX_digits(RgX_inflate(Q, p), Q, pN1));
   if (DEBUGLEVEL>1) timer_printf(&ti,"s1");
   s = ZpXXQ_invsqrt(s, Q, p, N);
+  if (k==3)
+    s = FpXXQ_mul(s, FpXXQ_sqr(s, Q, pN1), Q, pN1);
   if (DEBUGLEVEL>1) timer_printf(&ti,"invsqrt");
   get_UV(&U, &V, Q, p, N+1);
-  F = cgetg(1+g, t_MAT);
-  for (i = 1; i <= g; i++)
+  F = cgetg(d, t_MAT);
+  for (i = 1; i < d; i++)
   {
     pari_sp av2 = avma;
     GEN M, D;
-    D = diff_red(s, monomial(utoi(p),p*i-1,1),p>>1, Q, pN1);
+    D = diff_red(s, monomial(utoi(p),p*i-1,1),(k*p-1)>>1, Q, pN1);
     if (DEBUGLEVEL>1) timer_printf(&ti,"red");
-    M = ZpXXQ_frob(D, U, V, Q, p, N + 1);
+    M = ZpXXQ_frob(D, U, V, (k-1)>>1, Q, p, N + 1);
     if (DEBUGLEVEL>1) timer_printf(&ti,"frob");
-    gel(F, i) = gerepilecopy(av2, RgX_to_RgC(M, g));
+    gel(F, i) = gerepilecopy(av2, RgX_to_RgC(M, d-1));
   }
   return gerepileupto(av, F);
 }
@@ -321,10 +346,11 @@ static GEN
 FpXQXXQ_red(GEN F, GEN S, GEN T, GEN p)
 {
   pari_sp av = avma;
-  long dF = degpol(F);
-  GEN A = cgetg(dF+3, t_POL);
-  GEN C = pol_0(varn(S));
-  long i;
+  long i, dF = degpol(F);
+  GEN A, C;
+  if (signe(F)==0) return pol_0(varn(S));
+  A = cgetg(dF+3, t_POL);
+  C = pol_0(varn(S));
   for(i=dF; i>0; i--)
   {
     GEN Fi = FpXX_add(C, gel(F,i+2), p);
@@ -401,10 +427,9 @@ ZpXQXXQ_invsqrt(GEN F, GEN S, GEN T, ulong p, long e)
     long n2 = n;
     n<<=1; if (mask & 1) n--;
     mask >>= 1;
-    q = powuu(p,n), q2 = powuu(p,n2);
+    q = powuu(p,n); q2 = powuu(p,n2);
     av3 = avma;
     f = RgX_sub(FpXQXXQ_mul(F, FpXQXXQ_sqr(a, S, T, q), S, T, q), pol_1(v));
-    fq = RgX_Rg_divexact(f, q2);
     fq = gerepileupto(av3, RgX_Rg_divexact(f, q2));
     q22 = shifti(addis(q2,1),-1);
     afq = FpXXX_Fp_mul(FpXQXXQ_mul(a, fq, S, T, q2), q22, q2);
@@ -426,7 +451,7 @@ frac_to_Fq(GEN a, GEN b, GEN T, GEN p)
 }
 
 static GEN
-ZpXQXXQ_frob(GEN F, GEN U, GEN V, GEN S, GEN T, ulong p, long e)
+ZpXQXXQ_frob(GEN F, GEN U, GEN V, long k, GEN S, GEN T, ulong p, long e)
 {
   pari_sp av = avma, av2;
   long i, pr = degpol(F), dS = degpol(S), v = varn(T);
@@ -434,7 +459,7 @@ ZpXQXXQ_frob(GEN F, GEN U, GEN V, GEN S, GEN T, ulong p, long e)
   GEN Sp = RgX_deriv(S), Sp1 = RgX_shift_shallow(Sp, 1);
   GEN M = gel(F,pr+2), R;
   av2 = avma;
-  for(i = pr-1; i>=0; i--)
+  for(i = pr-1; i>=k; i--)
   {
     GEN A, B, H, Bc;
     ulong v, r;
@@ -514,7 +539,7 @@ Fq_get_UV(GEN *U, GEN *V, GEN S, GEN T, ulong p, long e)
   GEN R  = polresultantext(S, dS), C;
   long v = varn(S);
   if (signe(FpX_red(to_ZX(gel(R,3),v),utoi(p)))==0) is_sing(S, p);
-  C = FpXQ_red(gel(R, 3), T, q);
+  C = FpXQ_red(to_ZX(gel(R, 3),v), T, q);
   d = ZpXQ_inv(C, T, utoi(p), e);
   *U = FpXQX_FpXQ_mul(FpXQX_red(to_ZX(gel(R,1),v),T,q),d,T,q);
   *V = FpXQX_FpXQ_mul(FpXQX_red(to_ZX(gel(R,2),v),T,q),d,T,q);
@@ -542,19 +567,18 @@ GEN
 ZlXQX_hyperellpadicfrobenius(GEN H, GEN T, ulong p, long n)
 {
   pari_sp av = avma;
-  long N, i, d, g;
+  long k, N, i, d;
   GEN xp, F, s, q, Q, pN1, U, V;
   pari_timer ti;
   if (typ(H) != t_POL) pari_err_TYPE("hyperellpadicfrobenius",H);
   if (p == 2) is_sing(H, 2);
-  d = degpol(H); g = ((d-1)>>1)*2;
-  if (d < 0 || !odd(d))
-    pari_err_DOMAIN("hyperellpadicfrobenius","H","degree % 2 = ", gen_0, H);
-  if (p < (ulong) d)
-    pari_err_DOMAIN("hyperellpadicfrobenius","p","<", utoi(d), utoi(p));
+  d = degpol(H);
+  if (d <= 0)
+    pari_err_CONSTPOL("hyperellpadicfrobenius");
   if (n < 1)
     pari_err_DOMAIN("hyperellpadicfrobenius","n","<", gen_1, utoi(n));
-  N = n + logint0(stoi(2*n), stoi(p), NULL);
+  k = get_basis(p, d);
+  N = n + logint(stoi(2*n), stoi(p), NULL);
   q = powuu(p,n); pN1 = powuu(p,N+1); T = FpX_get_red(T, pN1);
   Q = RgX_to_FqX(H, T, pN1);
   if (signe(FpX_red(to_ZX(leading_term(Q),varn(Q)),utoi(p)))==0) is_sing(H, p);
@@ -564,19 +588,21 @@ ZlXQX_hyperellpadicfrobenius(GEN H, GEN T, ulong p, long n)
   s = revdigits(FpXQX_digits(s, Q, T, pN1));
   if (DEBUGLEVEL>1) timer_printf(&ti,"s1");
   s = ZpXQXXQ_invsqrt(s, Q, T, p, N);
+  if (k==3)
+    s = FpXQXXQ_mul(s, FpXQXXQ_sqr(s, Q, T, pN1), Q, T, pN1);
   if (DEBUGLEVEL>1) timer_printf(&ti,"invsqrt");
   Fq_get_UV(&U, &V, Q, T, p, N+1);
   if (DEBUGLEVEL>1) timer_printf(&ti,"get_UV");
-  F = cgetg(1+g, t_MAT);
-  for (i = 1; i <= g; i++)
+  F = cgetg(d, t_MAT);
+  for (i = 1; i < d; i++)
   {
     pari_sp av2 = avma;
     GEN M, D;
-    D = Fq_diff_red(s, monomial(utoi(p),p*i-1,1),p>>1, Q, T, pN1);
+    D = Fq_diff_red(s, monomial(utoi(p),p*i-1,1),(k*p-1)>>1, Q, T, pN1);
     if (DEBUGLEVEL>1) timer_printf(&ti,"red");
-    M = ZpXQXXQ_frob(D, U, V, Q, T, p, N + 1);
+    M = ZpXQXXQ_frob(D, U, V, (k - 1)>>1, Q, T, p, N + 1);
     if (DEBUGLEVEL>1) timer_printf(&ti,"frob");
-    gel(F, i) = gerepileupto(av2, ZXX_to_FpXC(M, g, q, varn(T)));
+    gel(F, i) = gerepileupto(av2, ZXX_to_FpXC(M, d-1, q, varn(T)));
   }
   return gerepileupto(av, F);
 }
@@ -592,30 +618,84 @@ nfhyperellpadicfrobenius(GEN H, GEN T, ulong p, long n)
   return gerepileupto(av, m);
 }
 
+static GEN
+Flx_genus2charpoly_naive(GEN H, ulong p)
+{
+  pari_sp av = avma;
+  ulong pi = get_Fl_red(p);
+  ulong i, j, p2 = p>>1, D = 2, e = ((p&2UL) == 0) ? -1 : 1;
+  long a, b, c = 0;
+  if (degpol(H) == 5)
+    a = b = 0;
+  else
+  {
+    a = krouu(Flx_lead(H), p);
+    b = 1;
+  }
+  while (krouu(D, p) >= 0) D++;
+  for (i=0; i < p; i++)
+  {
+    ulong v = Flx_eval(H, i, p);
+    a += krouu(v, p);
+    b += !!v;
+    for (j=1; j <= p2; j++)
+    {
+      GEN r2 = Flx_Fl2_eval_pre(H, mkvecsmall2(i, j), D, p, pi);
+      c += uel(r2,2) ?
+           (uel(r2,1) ? krouu(Fl2_norm_pre(r2, D, p, pi), p): e)
+         : !!uel(r2,1);
+      avma = av;
+    }
+  }
+  return mkvecsmalln(6, 0UL, p*p, a*p, (b+2*c+a*a)>>1, a, 1UL);
+}
+
 GEN
 hyperellcharpoly(GEN H)
 {
   pari_sp av = avma;
   GEN M, R, T=NULL, pp=NULL;
-  long n;
+  long d, n, eps = 0;
   ulong p;
+  if (is_vec_t(typ(H)) && lg(H)==3)
+    H = gadd(gsqr(gel(H, 2)), gmul2n(gel(H, 1), 2));
   if (typ(H)!=t_POL || !RgX_is_FpXQX(H, &T, &pp) || !pp)
     pari_err_TYPE("hyperellcharpoly",H);
   p = itou(pp);
   if (!T)
   {
     H = RgX_to_FpX(H, pp);
-    n = (degpol(H)-1)/2+1;
+    d = degpol(H);
+    if (p > 2 && ((d == 5 && p < 3000) || (d == 6 && p < 5500)))
+    {
+      GEN Hp = ZX_to_Flx(H, p);
+      if (!Flx_is_squarefree(Hp, p)) is_sing(H, p);
+      R = zx_to_ZX(Flx_genus2charpoly_naive(Hp, p));
+      return gerepileupto(av, R);
+    }
+    n = (d>>1) + 1; eps = odd(d)? 0: Fp_issquare(leading_term(H), pp);
     M = hyperellpadicfrobenius(H, p, n);
     R = centerlift(carberkowitz(M, 0));
   }
   else
   {
+    int fixvar;
     T = typ(T)==t_FFELT? FF_mod(T): RgX_to_FpX(T, pp);
+    fixvar = (varncmp(varn(T),varn(H)) <= 0);
+    if (fixvar) setvarn(T, fetch_var());
     H = RgX_to_FpXQX(H, T, pp);
-    n = degpol(T)*(degpol(H)-1)/2+1;
+    d = degpol(H); eps = odd(d)? 0: Fq_issquare(leading_term(H), T, pp);
+    n = ((degpol(T)*d)>>1) + 1;
     M = nfhyperellpadicfrobenius(H, T, p, n);
-    R = centerlift(liftpol(carberkowitz(M, 0)));
+    R = centerlift(liftpol_shallow(carberkowitz(M, 0)));
+    if (fixvar) (void)delete_var();
+  }
+  if (!odd(d))
+  {
+    GEN q = get_basis(p, d) == 3 ? gen_1 : T ? powuu(p, degpol(T)): pp;
+    GEN v, Rx = RgX_div_by_X_x(R, eps? q: negi(q), &v);
+    if (signe(v)) pari_err_BUG("hyperellcharpoly");
+    return gerepilecopy(av, Rx);
   }
   return gerepileupto(av, R);
 }

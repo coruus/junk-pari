@@ -21,11 +21,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA. */
 
 int new_galois_format = 0;
 
+int
+checkrnf_i(GEN rnf)
+{ return (typ(rnf)==t_VEC && lg(rnf)==13); }
+
 void
 checkrnf(GEN rnf)
-{
-  if (typ(rnf)!=t_VEC || lg(rnf)!=13) pari_err_TYPE("checkrnf",rnf);
-}
+{ if (!checkrnf_i(rnf)) pari_err_TYPE("checkrnf",rnf); }
 
 GEN
 checkbnf_i(GEN X)
@@ -227,6 +229,7 @@ nftyp(GEN x)
     case t_VEC:
       switch(lg(x))
       {
+        case 13: return typ_RNF;
         case 10:
           if (typ(gel(x,1))!=t_POL) break;
           return typ_NF;
@@ -1176,6 +1179,7 @@ nfiso0(GEN a, GEN b, long fliso)
   pari_sp av = avma;
   long i, vb, lx;
   GEN nfa, nfb, y, la, lb;
+  int newvar;
 
   a = get_nfpol(a, &nfa);
   b = get_nfpol(b, &nfb);
@@ -1186,16 +1190,12 @@ nfiso0(GEN a, GEN b, long fliso)
 
   if (nfb) lb = gen_1; else b = ZX_Q_normalize(b,&lb);
   if (nfa) la = gen_1; else a = ZX_Q_normalize(a,&la);
-  a = leafcopy(a); setvarn(a,0);
-  b = leafcopy(b); vb = varn(b);
+  vb = varn(b); newvar = (varncmp(vb,varn(a)) <= 0);
+  if (newvar) { a = leafcopy(a); setvarn(a, fetch_var_higher()); }
   if (nfb)
-  {
-    if (vb == 0) nfb = gsubst(nfb, 0, pol_x(MAXVARN));
     y = lift_intern(nfroots(nfb,a));
-  }
   else
   {
-    if (vb == 0) setvarn(b, fetch_var());
     y = gel(polfnf(a,b),1); lx = lg(y);
     for (i=1; i<lx; i++)
     {
@@ -1203,10 +1203,10 @@ nfiso0(GEN a, GEN b, long fliso)
       if (degpol(t) != 1) { setlg(y,i); break; }
       gel(y,i) = gneg_i(lift_intern(gel(t,2)));
     }
-    if (vb == 0) (void)delete_var();
     settyp(y, t_VEC);
     gen_sort_inplace(y, (void*)&cmp_RgX, &cmp_nodata, NULL);
   }
+  if (newvar) (void)delete_var();
   lx = lg(y); if (lx==1) { avma=av; return gen_0; }
   for (i=1; i<lx; i++)
   {
@@ -1431,10 +1431,12 @@ make_M(nffp_t *F, int trunc)
   long i, j, l = lg(ro), n = lg(bas);
   M = cgetg(n,t_MAT);
   gel(M,1) = const_col(l-1, gen_1); /* bas[1] = 1 */
-  for (j=2; j<n; j++)
+  for (j=2; j<n; j++) gel(M,j) = cgetg(l,t_COL);
+  for (i=1; i<l; i++)
   {
-    m = cgetg(l,t_COL); gel(M,j) = m;
-    for (i=1; i<l; i++) gel(m,i) = poleval(gel(bas,j), gel(ro,i));
+    GEN r = gel(ro,i), ri;
+    ri = (gexpo(r) > 1)? ginv(r): NULL;
+    for (j=2; j<n; j++) gcoeff(M,i,j) = RgX_cxeval(gel(bas,j), r, ri);
   }
   if (den)
     for (j=2; j<n; j++)
@@ -1594,7 +1596,7 @@ GEN
 nfcertify(GEN nf)
 {
   nf = checknf(nf);
-  return primes_certify(nf_get_disc(nf),gmael(nf, 5, 8));
+  return primes_certify(nf_get_disc(nf), nf_get_ramified_primes(nf));
 }
 
 #if 0 /* used to check benches between HNF nf.zk and LLL-reduced nf.zk */
@@ -1814,7 +1816,7 @@ nf_input_type(GEN x)
       switch(typ(V))
       {
         case t_INT: case t_MAT: return t_POL;
-        case t_VEC:
+        case t_VEC: case t_COL:
           if (RgV_is_ZV(V)) return t_POL;
           break;
         default: return -1;
@@ -1915,6 +1917,7 @@ nfinitall(GEN x, long flag, long prec)
   GEN nf, unscale;
   nfbasic_t T;
 
+  if (checkrnf_i(x)) return check_and_build_nfabs(x, prec);
   nfbasic_init(x, flag, &T);
   if (!ZX_is_irred(T.x)) pari_err_IRREDPOL("nfinit",x);
   if (!equali1(leading_term(T.x0)) && !(flag & nf_RED))

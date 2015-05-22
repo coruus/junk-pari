@@ -653,13 +653,13 @@ _next_le_i(forvec_t *d)
     if (cmpii(d->a[i], d->M[i]) < 0)
     {
       d->a[i] = incloop(d->a[i]);
-      /* m[i] < a[i] <= M[i] < M[i+1] */
+      /* m[i] < a[i] <= M[i] <= M[i+1] */
       while (i < d->n)
       {
         GEN t;
         i++;
         if (cmpii(d->a[i-1], d->a[i]) <= 0) continue;
-        /* a[i-1] <= M[i-1] <= M[i] */
+        /* a[i] < a[i-1] <= M[i-1] <= M[i] */
         t = d->a[i-1]; if (cmpii(t, d->m[i]) < 0) t = d->m[i];
         d->a[i] = resetloop(d->a[i], t);/*a[i]:=max(a[i-1],m[i])*/
       }
@@ -673,7 +673,7 @@ _next_le_i(forvec_t *d)
 static GEN
 _next_le(forvec_t *d)
 {
-  long i = d->n, imin = d->n;
+  long i = d->n;
   if (d->first) { d->first = 0; return (GEN)d->a; }
   for (;;) {
     d->a[i] = gaddgs(d->a[i], 1);
@@ -681,25 +681,18 @@ _next_le(forvec_t *d)
     {
       while (i < d->n)
       {
+        GEN c;
         i++;
         if (gcmp(d->a[i-1], d->a[i]) <= 0) continue;
-        while (gcmp(d->a[i-1], d->M[i]) > 0)
-        {
-          i = imin - 1; if (!i) return NULL;
-          imin = i;
-          d->a[i] = gaddgs(d->a[i], 1);
-          if (gcmp(d->a[i], d->M[i]) <= 0) break;
-        }
-        if (i > 1) { /* a >= a[i-1] - a[i] */
-          GEN a = gceil(gsub(d->a[i-1], d->a[i]));
-          d->a[i] = gadd(d->a[i], a);
-        }
+        /* M[i] >= M[i-1] >= a[i-1] > a[i] */
+        c = gceil(gsub(d->a[i-1], d->a[i]));
+        d->a[i] = gadd(d->a[i], c);
+        /* a[i-1] <= a[i] < M[i-1] + 1 => a[i] < M[i]+1 => a[i] <= M[i] */
       }
       return (GEN)d->a;
     }
     d->a[i] = d->m[i];
     if (--i <= 0) return NULL;
-    if (i < imin) imin = i;
   }
 }
 /* strictly increasing order [over integers] */
@@ -720,7 +713,7 @@ _next_lt_i(forvec_t *d)
         i++;
         if (cmpii(d->a[i-1], d->a[i]) < 0) continue;
         av = avma;
-        /* a[i-1] <= M[i-1] < M[i] */
+        /* M[i] > M[i-1] >= a[i-1] */
         t = addis(d->a[i-1],1); if (cmpii(t, d->m[i]) < 0) t = d->m[i];
         d->a[i] = resetloop(d->a[i], t);/*a[i]:=max(a[i-1]+1,m[i]) <= M[i]*/
         avma = av;
@@ -735,7 +728,7 @@ _next_lt_i(forvec_t *d)
 static GEN
 _next_lt(forvec_t *d)
 {
-  long i = d->n, imin = d->n;
+  long i = d->n;
   if (d->first) { d->first = 0; return (GEN)d->a; }
   for (;;) {
     d->a[i] = gaddgs(d->a[i], 1);
@@ -743,28 +736,18 @@ _next_lt(forvec_t *d)
     {
       while (i < d->n)
       {
+        GEN c;
         i++;
         if (gcmp(d->a[i-1], d->a[i]) < 0) continue;
-        for(;;)
-        {
-          GEN a, b;
-          a = addis(gfloor(gsub(d->a[i-1], d->a[i])), 1); /* a> v[i-1]-v[i] */
-          b = gadd(d->a[i], a);
-          /* v[i-1] < b <= v[i-1] + 1 */
-          if (gcmp(b, d->M[i]) <= 0) { d->a[i] = b; break; }
-
-          for (; i >= imin; i--) d->a[i] = d->m[i];
-          if (!i) return NULL;
-          imin = i;
-          d->a[i] = gaddgs(d->a[i], 1);
-          if (gcmp(d->a[i], d->M[i]) <= 0) break;
-        }
+        /* M[i] > M[i-1] >= a[i-1] >= a[i] */
+        c = addis(gfloor(gsub(d->a[i-1], d->a[i])), 1); /* > a[i-1] - a[i] */
+        d->a[i] = gadd(d->a[i], c);
+        /* a[i-1] < a[i] <= M[i-1] + 1 => a[i] < M[i]+1 => a[i] <= M[i] */
       }
       return (GEN)d->a;
     }
     d->a[i] = d->m[i];
     if (--i <= 0) return NULL;
-    if (i < imin) imin = i;
   }
 }
 /* for forvec(v=[],) */
@@ -775,9 +758,10 @@ _next_void(forvec_t *d)
   return NULL;
 }
 
-/* Initialize minima (m) and maxima (M); guarantee
+/* Initialize minima (m) and maxima (M); guarantee M[i] - m[i] integer and
  *   if flag = 1: m[i-1] <= m[i] <= M[i] <= M[i+1]
- *   if flag = 2: m[i-1] <  m[i] <= M[i] <  M[i+1] */
+ *   if flag = 2: m[i-1] <  m[i] <= M[i] <  M[i+1],
+ * for all i */
 int
 forvec_init(forvec_t *d, GEN x, long flag)
 {
@@ -812,32 +796,25 @@ forvec_init(forvec_t *d, GEN x, long flag)
       default: m = gcopy(m);
         break;
     }
+    M = gadd(m, gfloor(gsub(M,m))); /* ensure M-m is an integer */
     if (gcmp(m,M) > 0) { d->a = NULL; d->next = &_next; return 0; }
     d->m[i] = m;
     d->M[i] = M;
   }
-  for (i = l-2; i >= 1; i--)
+  if (flag == 1) for (i = l-2; i >= 1; i--)
   {
-    GEN a, M = d->M[i];
-    switch(flag) {
-      case 1:/* a >= M - M[i] */
-        a = gfloor(gsub(d->M[i+1], M));
-        if (typ(a) != t_INT) pari_err_TYPE("forvec",a);
-        if (signe(a) < 0) M = gadd(M, a); else M = gcopy(M);
-        /* M <= M[i+1] */
-        break;
-      case 2:
-        a = gceil(gsub(d->M[i+1], M));
-        if (typ(a) != t_INT) pari_err_TYPE("forvec",a);
-        a = subis(a, 1);
-        if (signe(a) < 0) M = gadd(M, a); else M = gcopy(M);
-        /* M < M[i+1] */
-        break;
-      default:
-        M = gcopy(M);
-        break;
-    }
-    d->M[i] = M;
+    GEN M = d->M[i], a = gfloor(gsub(d->M[i+1], M));
+    if (typ(a) != t_INT) pari_err_TYPE("forvec",a);
+    /* M[i]+a <= M[i+1] */
+    if (signe(a) < 0) d->M[i] = gadd(M, a);
+  }
+  else if (flag == 2) for (i = l-2; i >= 1; i--)
+  {
+    GEN M = d->M[i], a = gceil(gsub(d->M[i+1], M));
+    if (typ(a) != t_INT) pari_err_TYPE("forvec",a);
+    a = subiu(a, 1);
+    /* M[i]+a < M[i+1] */
+    if (signe(a) < 0) d->M[i] = gadd(M, a);
   }
   if (t == t_INT) {
     for (i = 1; i < l; i++) {
@@ -1116,6 +1093,16 @@ direuler(void *E, GEN (*eval)(void *, GEN), GEN a, GEN b, GEN c)
   GEN x, y, s, polnum, polden, prime;
   forprime_t T;
 
+  if (typ(b) != t_INT)
+  {
+    b = gfloor(b);
+    if (typ(b) != t_INT) pari_err_TYPE("direuler",b);
+  }
+  if (typ(a) != t_INT)
+  {
+    a = gceil(a);
+    if (typ(a) != t_INT) pari_err_TYPE("direuler",a);
+  }
   if (c)
   {
     if (typ(c) != t_INT)
@@ -1123,23 +1110,12 @@ direuler(void *E, GEN (*eval)(void *, GEN), GEN a, GEN b, GEN c)
       c = gfloor(c);
       if (typ(c) != t_INT) pari_err_TYPE("direuler", c);
     }
-    if (signe(c) <= 0) { avma = av0; return mkvec(gen_1); }
-    n = itou(c);
-    if (cmpui(n, b) < 0) b = c;
+    if (signe(c) <= 0) { avma = av0; return cgetg(1,t_VEC); }
+    if (cmpii(c, b) < 0) b = c;
   }
+  if (lgefint(b) > 3) pari_err_OVERFLOW("direuler");
   if (!forprime_init(&T, a,b)) { avma = av0; return mkvec(gen_1); }
-
-  if (c)
-  {
-    n = itou(c);
-    if (cmpui(n, b) < 0) b = c;
-  }
-  else
-  {
-    if (lgefint(b) > 3) pari_err_OVERFLOW("direuler");
-    n = itou(b);
-  }
-
+  n = itou(b);
   y = cgetg(n+1,t_VEC); av = avma;
   x = zerovec(n); gel(x,1) = gen_1;
   while ( (prime = forprime_next(&T)) )
@@ -1240,7 +1216,10 @@ vecexpr0(GEN vec, GEN code, GEN pred)
   {
     case t_LIST:
     {
-      vec = list_data(vec);
+      if (list_typ(vec)==t_LIST_MAP)
+        vec = mapdomain_shallow(vec);
+      else
+        vec = list_data(vec);
       if (!vec) return cgetg(1, t_VEC);
       break;
     }
@@ -1343,85 +1322,91 @@ matrice(GEN nlig, GEN ncol, GEN code)
 /**                         SUMMING SERIES                         **/
 /**                                                                **/
 /********************************************************************/
-GEN
-polzag(long n, long m)
+/* h = (2+2x)g'- g; g has t_INT coeffs */
+static GEN
+delt(GEN g, long n)
 {
-  pari_sp av = avma;
-  long k, d = n - m;
-  GEN A, Bx, g, s;
-
-  if (d <= 0 || m < 0) return gen_0;
-  A  = mkpoln(2, stoi(-2), gen_1); /* 1 - 2x */
-  Bx = mkpoln(3, stoi(-2), gen_2, gen_0); /* 2x - 2x^2 */
-  g = gmul(poleval(ZX_deriv(polchebyshev1(d,0)), A), gpowgs(Bx, (m+1)>>1));
-  for (k = m; k >= 0; k--)
-    g = (k&1)? ZX_deriv(g): gadd(gmul(A,g), gmul(Bx,ZX_deriv(g)));
-  s = mulii(sqru(d), mpfact(m+1));
-  return gerepileupto(av, gdiv(g,s));
+  GEN h = cgetg(n+3,t_POL);
+  long k;
+  h[1] = g[1];
+  gel(h,2) = gel(g,2);
+  for (k=1; k<n; k++)
+    gel(h,k+2) = addii(mului(k+k+1,gel(g,k+2)), mului(k<<1,gel(g,k+1)));
+  gel(h,n+2) = mului(n<<1, gel(g,n+1)); return h;
 }
 
 #ifdef _MSC_VER /* Bill Daly: work around a MSVC bug */
 #pragma optimize("g",off)
 #endif
+/* P = polzagier(n,m)(-X), unnormalized (P(0) != 1) */
 static GEN
-polzagreel(long n, long m, long prec)
+polzag1(long n, long m)
 {
-  const long d = n - m, d2 = d<<1, r = (m+1)>>1;
-  long j, k, k2;
+  const long d = n - m, d2 = d<<1, r = (m+1)>>1, D = (d+1)>>1;
+  long i, k;
   pari_sp av = avma;
-  GEN Bx, g, h, v, b, s;
+  GEN g, T;
 
-  if (d <= 0 || m < 0) return gen_0;
-  Bx = mkpoln(3, gen_1, gen_1, gen_0); /* x + x^2 */
-  v = cgetg(d+1,t_VEC);
-  g = cgetg(d+1,t_VEC);
-  gel(v,d) = gen_1; b = stor(d2, prec);
-  gel(g,d) = b;
-  for (k = 1; k < d; k++)
+  if (d <= 0 || m < 0) return pol_0(0);
+  g = cgetg(d+2, t_POL);
+  g[1] = evalsigne(1)|evalvarn(0);
+  T = cgetg(d+1,t_VEC);
+  /* T[k+1] = binomial(2d,2k+1), 0 <= k < d */
+  gel(T,1) = utoipos(d2);
+  for (k = 1; k < D; k++)
   {
-    gel(v,d-k) = gen_1;
-    for (j=1; j<k; j++)
-      gel(v,d-k+j) = addii(gel(v,d-k+j), gel(v,d-k+j+1));
-    /* v[d-k+j] = binom(k, j), j = 0..k */
-    k2 = k+k; b = divri(mulri(b,mulss(d2-k2+1,d2-k2)), mulss(k2,k2+1));
-    for (j=1; j<=k; j++)
-      gel(g,d-k+j) = mpadd(gel(g,d-k+j), mulri(b,gel(v,d-k+j)));
-    gel(g,d-k) = b;
+    long k2 = k<<1;
+    gel(T,k+1) = diviiexact(mulii(gel(T,k), muluu(d2-k2+1, d2-k2)),
+                            muluu(k2,k2+1));
   }
-  g = gmul(RgV_to_RgX(g,0), gpowgs(Bx,r));
-  for (j=0; j<=r; j++)
+  for (; k < d; k++) gel(T,k+1) = gel(T,d-k);
+  gel(g,2) = gel(T,d); /* binomial(2d, 2(d-1)+1) */
+  for (i = 1; i < d; i++)
   {
-    if (j) g = RgX_deriv(g);
-    if (j || !(m&1))
+    pari_sp av2 = avma;
+    GEN s, t = gel(T,d-i); /* binomial(2d, 2(d-1-i)+1) */
+    s = t;
+    for (k = d-i; k < d; k++)
     {
-      h = cgetg(n+3,t_POL);
-      h[1] = evalsigne(1);
-      gel(h,2) = gel(g,2);
-      for (k=1; k<n; k++)
-        gel(h,k+2) = gadd(gmulsg(k+k+1,gel(g,k+2)), gmulsg(k<<1,gel(g,k+1)));
-      gel(h,n+2) = gmulsg(n<<1, gel(g,n+1));
-      g = h;
+      long k2 = k<<1;
+      t = diviiexact(mulii(t, muluu(d2-k2+1, d-k)), muluu(k2+1,k-(d-i)+1));
+      s = addii(s, t);
+    }
+    /* g_i = sum_{d-1-i <= k < d}, binomial(2*d, 2*k+1)*binomial(k,d-1-i) */
+    gel(g,i+2) = gerepileuptoint(av2, s);
+  }
+  /* sum_{0 <= i < d} g_i x^i * (x+x^2)^r */
+  g = RgX_mulXn(gmul(g, gpowgs(deg1pol(gen_1,gen_1,0),r)), r);
+  if (!odd(m)) g = delt(g, n);
+  for (i=1; i<=r; i++)
+  {
+    g = delt(ZX_deriv(g), n);
+    if (gc_needed(av,4))
+    {
+      if (DEBUGMEM>1) pari_warn(warnmem,"polzag, i = %ld/%ld", i,r);
+      g = gerepilecopy(av, g);
     }
   }
-  g = gmul2n(g, r-1);
-  s = mului(d, mpfact(m+1));
-  return gerepileupto(av, gdiv(g,s));
+  return g;
+}
+GEN
+polzag(long n, long m)
+{
+  pari_sp av = avma;
+  GEN g = ZX_unscale(polzag1(n,m), gen_m1);
+  return gerepileupto(av, RgX_Rg_div(g,gel(g,2)));
 }
 
-#ifdef _MSC_VER
-#pragma optimize("g",on)
-#endif
 GEN
 sumalt(void *E, GEN (*eval)(void *, GEN), GEN a, long prec)
 {
   ulong k, N;
   pari_sp av = avma, av2;
-  GEN s, az, c, e1, d;
+  GEN s, az, c, d;
 
   if (typ(a) != t_INT) pari_err_TYPE("sumalt",a);
-  e1 = addsr(3, sqrtr(stor(8,prec)));
-  N = (ulong)(0.4*(prec2nbits(prec)+ 7));
-  d = powru(e1,N);
+  N = (ulong)(0.39322*(prec2nbits(prec) + 7)); /*0.39322 > 1/log_2(3+sqrt(8))*/
+  d = powru(addsr(3, sqrtr(stor(8,prec))), N);
   d = shiftr(addrr(d, invr(d)),-1);
   a = setloop(a);
   az = gen_m1; c = d;
@@ -1450,16 +1435,16 @@ sumalt2(void *E, GEN (*eval)(void *, GEN), GEN a, long prec)
   GEN s, dn, pol;
 
   if (typ(a) != t_INT) pari_err_TYPE("sumalt",a);
-  N = (long)(0.31*(prec2nbits(prec) + 5));
-  pol = polzagreel(N,N>>1,prec+EXTRAPRECWORD);
-  pol = RgX_div_by_X_x(pol, gen_1, &dn);
+  N = (long)(0.307073*(prec2nbits(prec) + 5)); /*0.307073 > 1/log_2(\beta_B)*/
+  pol = ZX_div_by_X_1(polzag1(N,N>>1), &dn);
   a = setloop(a);
   N = degpol(pol);
   s = gen_0;
   av2 = avma;
   for (k=0; k<=N; k++)
   {
-    s = gadd(s, gmul(gel(pol,k+2), eval(E, a)));
+    GEN t = itor(gel(pol,k+2), prec+EXTRAPRECWORD);
+    s = gadd(s, gmul(t, eval(E, a)));
     if (k == N) break;
     a = incloop(a); /* in place! */
     if (gc_needed(av,4))
@@ -1483,49 +1468,80 @@ sumalt0(GEN a, GEN code, long flag, long prec)
   return NULL; /* not reached */
 }
 
+/* For k > 0, set S[k*2^i] <- g(k*2^i), k*2^i <= N = #S.
+ * Only needed with k odd (but also works for g even). */
+static void
+binsum(GEN S, ulong k, void *E, GEN (*f)(void *, GEN), GEN a,
+        long G, long prec)
+{
+  long e, i, N = lg(S)-1, l = expu(N / k); /* k 2^l <= N < k 2^(l+1) */
+  pari_sp av;
+  GEN r, t = gen_0;
+
+  gel(S, k << l) = cgetr(prec); av = avma;
+  G -= l;
+  r = utoipos(k<<l);
+  for(e=0;;e++) /* compute g(k 2^l) with absolute error ~ 2^(G-l) */
+  {
+    GEN u = gtofp(f(E, addii(a,r)), prec);
+    if (typ(u) != t_REAL) pari_err_TYPE("sumpos",u);
+    if (!signe(u)) break;
+    if (!e)
+      t = u;
+    else {
+      shiftr_inplace(u, e);
+      t = addrr(t,u);
+      if (expo(u) < G) break;
+    }
+    r = shifti(r,1);
+  }
+  gel(S, k << l) = t = gerepileuptoleaf(av, t);
+  /* g(j) = 2g(2j) + f(a+j) for all j > 0 */
+  for(i = l-1; i >= 0; i--)
+  { /* t ~ g(2 * k*2^i) with error ~ 2^(G-i-1) */
+    GEN u;
+    av = avma; u = gtofp(f(E, addiu(a, k << i)), prec);
+    if (typ(u) != t_REAL) pari_err_TYPE("sumpos",u);
+    t = addrr(gtofp(u,prec), shiftr(t,1)); /* ~ g(k*2^i) */
+    gel(S, k << i) = t = gerepileuptoleaf(av, t);
+  }
+}
+/* For k > 0, let g(k) := \sum_{e >= 0} 2^e f(a + k*2^e).
+ * Return [g(k), 1 <= k <= N] */
+static GEN
+sumpos_init(void *E, GEN (*f)(void *, GEN), GEN a, long N, long prec)
+{
+  GEN S = cgetg(N+1,t_VEC);
+  long k, G = -prec2nbits(prec) - 5;
+  for (k=1; k<=N; k+=2) binsum(S,k, E,f, a,G,prec);
+  return S;
+}
+
 GEN
 sumpos(void *E, GEN (*eval)(void *, GEN), GEN a, long prec)
 {
-  long k, kk, N, G;
+  ulong k, N;
   pari_sp av = avma;
-  GEN r, reel, s, az, c, x, e1, d, *stock;
+  GEN s, az, c, d, S;
 
   if (typ(a) != t_INT) pari_err_TYPE("sumpos",a);
-  a = subis(a,1); reel = cgetr(prec);
-  e1 = addsr(3, sqrtr(stor(8,prec)));
-  N = (long)(0.4*(prec2nbits(prec) + 7));
-  d = powru(e1,N);
+  a = subiu(a,1);
+  N = (ulong)(0.4*(prec2nbits(prec) + 7));
+  d = powru(addsr(3, sqrtr(stor(8,prec))), N);
   d = shiftr(addrr(d, invr(d)),-1);
   az = gen_m1; c = d;
-  s = gen_0;
 
-  G = -prec2nbits(prec) - 5;
-  stock = (GEN*)new_chunk(N+1); for (k=1; k<=N; k++) stock[k] = NULL;
+  if (odd(N)) N++; /* extra precision for free */
+  S = sumpos_init(E, eval, a, N, prec);
+  s = gen_0;
   for (k=0; k<N; k++)
   {
-    if (odd(k) && stock[k]) x = stock[k];
-    else
-    {
-      pari_sp av2 = avma;
-      x = gen_0; r = utoipos(2*k+2);
-      for(kk=0;;kk++)
-      {
-
-        long ex;
-        affgr(eval(E, addii(r,a)), reel);
-        if (!signe(reel)) break;
-        ex = expo(reel) + kk; shiftr_inplace(reel, kk);
-        x = mpadd(x,reel); if (kk && ex < G) break;
-        r = shifti(r,1);
-      }
-      x = gerepileupto(av2, x);
-      if (2*k < N) stock[2*k+1] = x;
-      affgr(eval(E, addsi(k+1,a)), reel);
-      x = addrr(reel, gmul2n(x,1));
-    }
+    GEN t;
     c = addir(az,c);
-    s = mpadd(s, mulrr(x, k&1? negr(c): c));
-    az = diviiexact(mulii(mulss(N-k,N+k),shifti(az,1)),mulss(k+1,k+k+1));
+    t = mulrr(gel(S,k+1), c);
+    s = odd(k)? mpsub(s, t): mpadd(s, t);
+    if (k == N-1) break;
+    az = diviuuexact(muluui((N-k)<<1,N+k,az), k+1, (k<<1)+1);
   }
   return gerepileupto(av, gdiv(s,d));
 }
@@ -1533,42 +1549,22 @@ sumpos(void *E, GEN (*eval)(void *, GEN), GEN a, long prec)
 GEN
 sumpos2(void *E, GEN (*eval)(void *, GEN), GEN a, long prec)
 {
-  long k, kk, N, G;
+  ulong k, N;
   pari_sp av = avma;
-  GEN r, reel, s, pol, dn, x, *stock;
+  GEN s, pol, dn, S;
 
   if (typ(a) != t_INT) pari_err_TYPE("sumpos2",a);
-  a = subis(a,1); reel = cgetr(prec);
-  N = (long)(0.31*(prec2nbits(prec) + 5));
+  a = subiu(a,1);
+  N = (ulong)(0.31*(prec2nbits(prec) + 5));
 
-  G = -prec2nbits(prec) - 5;
-  stock = (GEN*)new_chunk(N+1); for (k=1; k<=N; k++) stock[k] = NULL;
-  for (k=1; k<=N; k++)
-    if (odd(k) || !stock[k])
-    {
-      pari_sp av2 = avma;
-      x = gen_0; r = utoipos(2*k);
-      for(kk=0;;kk++)
-      {
-        long ex;
-        affgr(eval(E, addii(r,a)), reel);
-        ex = expo(reel) + kk; shiftr_inplace(reel, kk);
-        x = mpadd(x,reel); if (kk && ex < G) break;
-        r = shifti(r,1);
-      }
-      x = gerepileupto(av2, x);
-      if (2*k-1 < N) stock[2*k] = x;
-      affgr(eval(E, addsi(k,a)), reel);
-      stock[k] = addrr(reel, gmul2n(x,1));
-    }
+  if (odd(N)) N++; /* extra precision for free */
+  S = sumpos_init(E, eval, a, N, prec);
+  pol = ZX_div_by_X_1(polzag1(N,N>>1), &dn);
   s = gen_0;
-  pol = polzagreel(N,N>>1,prec+EXTRAPRECWORD);
-  pol = RgX_div_by_X_x(pol, gen_1, &dn);
-  for (k=1; k<=lg(pol)-2; k++)
+  for (k=0; k<N; k++)
   {
-    GEN p1 = gmul(gel(pol,k+1),stock[k]);
-    if (!odd(k)) p1 = gneg_i(p1);
-    s = gadd(s,p1);
+    GEN t = mulri(gel(S,k+1), gel(pol,k+2));
+    s = odd(k)? mpsub(s,t): mpadd(s,t);
   }
   return gerepileupto(av, gdiv(s,dn));
 }
@@ -1673,9 +1669,7 @@ zbrent0(GEN a, GEN b, GEN code, long prec)
  * return D.res; */
 
 /********************************************************************/
-/**                                                                **/
-/**            Numerical derivation                                **/
-/**                                                                **/
+/**                     Numerical derivation                       **/
 /********************************************************************/
 
 struct deriv_data
@@ -1684,11 +1678,11 @@ struct deriv_data
   GEN args;
 };
 
-static GEN deriv_eval(void *E, GEN x)
+static GEN deriv_eval(void *E, GEN x, long prec)
 {
  struct deriv_data *data=(struct deriv_data *)E;
  gel(data->args,1)=x;
- return closure_callgenvec(data->code, data->args);
+ return closure_callgenvecprec(data->code, data->args, prec);
 }
 
 /* Rationale: (f(2^-e) - f(-2^-e) + O(2^-pr)) / (2 * 2^-e) = f'(0) + O(2^-2e)
@@ -1699,7 +1693,7 @@ static GEN deriv_eval(void *E, GEN x)
  * For f'(x), x far from 0: prec(LHS) = pr - e - expo(x)
  * --> pr = 3/2 fpr + expo(x) */
 GEN
-derivnum(void *E, GEN (*eval)(void *, GEN), GEN x, long prec)
+derivnum(void *E, GEN (*eval)(void *, GEN, long), GEN x, long prec)
 {
   GEN eps,a,b, y;
   long pr, l, e, ex, newprec;
@@ -1710,7 +1704,7 @@ derivnum(void *E, GEN (*eval)(void *, GEN), GEN x, long prec)
   if (ex < 0) ex = 0; /* near 0 */
   pr = (long)ceil(fpr * 1.5 + ex);
   l = nbits2prec(pr);
-  newprec = l + nbits2extraprec(ex + BITS_IN_LONG);
+  newprec = nbits2prec(pr + ex + BITS_IN_LONG);
   switch(typ(x))
   {
     case t_REAL:
@@ -1720,16 +1714,14 @@ derivnum(void *E, GEN (*eval)(void *, GEN), GEN x, long prec)
 
   e = fpr/2; /* 1/2 required prec (in sig. bits) */
   eps = real2n(-e, l);
-  if (eval==gp_eval || eval==deriv_eval) push_localprec(newprec);
-  a = eval(E, gsub(x, eps));
-  b = eval(E, gadd(x, eps));
-  if (eval==gp_eval || eval==deriv_eval) pop_localprec();
+  a = eval(E, gsub(x, eps), newprec);
+  b = eval(E, gadd(x, eps), newprec);
   y = gmul2n(gsub(b,a), e-1);
   return gerepileupto(av, gprec_w(y, nbits2prec(fpr)));
 }
 
 GEN
-derivfun(void *E, GEN (*eval)(void *, GEN), GEN x, long prec)
+derivfun(void *E, GEN (*eval)(void *, GEN, long), GEN x, long prec)
 {
   pari_sp av = avma;
   long vx;
@@ -1741,7 +1733,7 @@ derivfun(void *E, GEN (*eval)(void *, GEN), GEN x, long prec)
     x = RgX_to_ser(x, precdl+2+1); /* +1 because deriv reduce the precision by 1 */
   case t_SER: /* FALL THROUGH */
     vx = varn(x);
-    return gerepileupto(av, gdiv(deriv(eval(E, x),vx), deriv(x,vx)));
+    return gerepileupto(av, gdiv(deriv(eval(E, x, prec),vx), deriv(x,vx)));
   default: pari_err_TYPE("formal derivation",x);
     return NULL; /*NOT REACHED*/
   }
@@ -1750,7 +1742,7 @@ derivfun(void *E, GEN (*eval)(void *, GEN), GEN x, long prec)
 GEN
 derivnum0(GEN a, GEN code, long prec)
 {
-  EXPR_WRAP(code, derivfun (EXPR_ARG,a,prec));
+  EXPR_WRAP(code, derivfun (EXPR_ARGPREC,a,prec));
 }
 
 GEN
@@ -1759,4 +1751,179 @@ derivfun0(GEN code, GEN args, long prec)
   struct deriv_data E;
   E.code=code; E.args=args;
   return derivfun((void*)&E, deriv_eval, gel(args,1), prec);
+}
+
+/********************************************************************/
+/**                   Numerical extrapolation                      **/
+/********************************************************************/
+
+static double
+extgetmf(long muli)
+{
+  double mulfact[] = {0.5,0.5,0.48,0.43,0.41,0.39,0.38,0.37,0.36,0.36,0.35};
+  if (muli > 100) return 0.35*LOG10_2;
+  return mulfact[muli/10]*LOG10_2;
+}
+
+/* [u(n*muli), u <= N], muli = 1 unless f!=NULL */
+static GEN
+get_u(void *E, GEN (*f)(void *, GEN, long), long N, long muli, long prec)
+{
+  long n;
+  GEN u;
+  if (f)
+  {
+    u = cgetg(N+1, t_VEC);
+    for (n = 1; n <= N; n++) gel(u,n) = f(E, stoi(muli*n), prec);
+  }
+  else
+  {
+    u = (GEN)E;
+    n = lg(u)-1;
+    if (n < N) pari_err_COMPONENT("limitnum","<",stoi(N), stoi(n));
+    u = vecslice(u, 1, N);
+  }
+  for (n = 1; n <= N; n++)
+  {
+    GEN un = gel(u,n);
+    if (is_rational_t(typ(un))) gel(u,n) = gtofp(un, prec);
+  }
+  return u;
+}
+
+struct limit
+{
+  long prec0; /* target accuracy */
+  long prec; /* working accuracy */
+  long N; /* number of terms */
+  GEN u; /* sequence to extrapolate */
+  GEN na; /* [n^alpha, n <= N] */
+  GEN nma; /* [n^-alpha, n <= N] or NULL (alpha = 1) */
+  GEN coef; /* or NULL (alpha != 1) */
+};
+
+static void
+limit_init(struct limit *L, void *E, GEN (*f)(void*,GEN,long),
+           long muli, GEN alpha, long prec)
+{
+  long bitprec = prec2nbits(prec), N;
+  GEN na;
+  long n;
+
+  if (muli <= 0) muli = 20;
+  if (!f) muli = 1;
+  L->N = N = (long)ceil(extgetmf(muli)*bitprec);
+  L->prec = nbits2prec((long)ceil(1.25*bitprec) + 32);
+  L->prec0 = prec;
+  L->u = get_u(E, f, N, muli, L->prec);
+  if (alpha && gcmp1(alpha)) alpha = NULL;
+  L->na = na  = cgetg(N+1, t_VEC);
+  for (n = 1; n <= N; n++)
+  {
+    GEN c = utoipos(n*muli);
+    if (alpha) c = gpow(c, alpha, L->prec);
+    gel(na,n) = c;
+  }
+  if (alpha)
+  {
+    GEN nma, malpha = gneg(alpha);
+    L->coef = NULL;
+    L->nma= nma = cgetg(N+1, t_VEC);
+    for (n = 1; n <= N; n++)
+    {
+      GEN c = gpow(utoipos(n),malpha,L->prec);
+      if (typ(c) != t_REAL) c = gtofp(c, L->prec);
+      gel(nma, n) = c;
+    }
+  }
+  else
+  {
+    GEN coef, C = vecbinome(N);
+    L->coef = coef = cgetg(N+1, t_VEC);
+    L->nma = NULL;
+    for (n = 1; n <= N; n++)
+    {
+      GEN c = mulii(gel(C,n+1), powuu(n, N));
+      if (odd(N-n)) togglesign_safe(&c);
+      gel(coef, n) = c;
+    }
+  }
+}
+
+/* Zagier/Lagrange extrapolation */
+static GEN
+limitnum_i(struct limit *L)
+{
+  pari_sp av = avma;
+  GEN S;
+  if (L->nma)
+    S = polint(L->nma, L->u,gen_0,NULL);
+  else
+    S = gdiv(RgV_dotproduct(L->u,L->coef), mpfact(L->N));
+  return gerepilecopy(av, gprec_w(S, L->prec0));
+}
+GEN
+limitnum(void *E, GEN (*f)(void *, GEN, long), long muli, GEN alpha, long prec)
+{
+  struct limit L;
+  limit_init(&L, E,f, muli, alpha, prec);
+  return limitnum_i(&L);
+}
+GEN
+limitnum0(GEN u, long muli, GEN alpha, long prec)
+{
+  void *E = (void*)u;
+  GEN (*f)(void*,GEN,long) = NULL;
+  switch(typ(u))
+  {
+    case t_COL:
+    case t_VEC: break;
+    case t_CLOSURE: f = gp_callprec; break;
+    default: pari_err_TYPE("limitnum", u);
+  }
+  return limitnum(E,f, muli,alpha, prec);
+}
+
+GEN
+asympnum(void *E, GEN (*f)(void *, GEN, long), long muli, GEN alpha, long prec)
+{
+  const long MAX = 100;
+  pari_sp av = avma;
+  GEN u, vres = vectrunc_init(MAX);
+  long i;
+  struct limit L;
+  limit_init(&L, E,f, muli, alpha, prec);
+  u = L.u;
+  for(i = 1; i <= MAX; i++)
+  {
+    GEN a, s, v, p, q;
+    long n;
+    s = limitnum_i(&L);
+    /* NOT bestappr: lindep will "properly" ignore the lower bits */
+    v = lindep(mkvec2(gen_1, s));
+    p = negi(gel(v,1));
+    q = gel(v,2);
+    if (!signe(q)) break;
+    a = gdiv(p,q);
+    s = gsub(s, a);
+    /* |s|q^2 > eps */
+    if (!gcmp0(s) && gexpo(s) + 2*expi(q) > -17) break;
+    vectrunc_append(vres, a);
+    for (n = 1; n <= L.N; n++) gel(u,n) = gmul(gsub(gel(u,n), a), gel(L.na,n));
+  }
+  return gerepilecopy(av, vres);
+}
+GEN
+asympnum0(GEN u, long muli, GEN alpha, long prec)
+{
+  void *E = (void*)u;
+  GEN (*f)(void*,GEN,long) = NULL;
+  switch(typ(u))
+  {
+    case t_COL:
+    case t_VEC: break;
+    case t_CLOSURE: f = gp_callprec; break;
+    default: pari_err_TYPE("asympnum", u);
+  }
+  return asympnum(E,f, muli,alpha, prec);
 }

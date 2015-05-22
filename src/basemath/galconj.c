@@ -50,17 +50,8 @@ galoisconj1(GEN nf)
     gel(res,2) = pol_x(v);
     return res;
   }
-  if (v == 0)
-  {
-    long w = fetch_var();
-    if (nf) y = gsubst(nf, 0, pol_x(w));
-    else { y = leafcopy(x); setvarn(y, w); }
-  }
-  else
-  {
-    y = x;
-    x = leafcopy(x); setvarn(x, 0);
-  }
+  y = x;
+  x = leafcopy(x); setvarn(x, fetch_var_higher());
   z = nfroots(y, x); lz = lg(z);
   y = cgetg(lz, t_COL);
   for (i = 1; i < lz; i++)
@@ -69,7 +60,7 @@ galoisconj1(GEN nf)
     if (typ(t) == t_POL) setvarn(t, v);
     gel(y,i) = t;
   }
-  if (v == 0) delete_var();
+  (void)delete_var();
   return gerepileupto(av, y);
 }
 
@@ -237,7 +228,7 @@ vandermondeinverseprep(GEN L)
     long k = 1;
     for (j = 1; j < n; j++)
       if (i != j) gel(W, k++) = gsub(gel(L,i),gel(L,j));
-    gel(V,i) = gerepileupto(ltop,divide_conquer_prod(W,&gmul));
+    gel(V,i) = gerepileupto(ltop, RgV_prod(W));
   }
   return V;
 }
@@ -341,7 +332,7 @@ initgaloisborne(GEN T, GEN dn, long prec, GEN *ptL, GEN *ptprep, GEN *ptdis)
   prep = vandermondeinverseprep(L);
   if (!dn)
   {
-    GEN dis, res = divide_conquer_prod(gabs(prep,prec), mpmul);
+    GEN dis, res = RgV_prod(gabs(prep,prec));
     dis = ZX_disc_all(T, expi(ceil_safe(res)));
     den = indexpartial(T,dis);
     if (ptdis) *ptdis = dis;
@@ -356,17 +347,19 @@ initgaloisborne(GEN T, GEN dn, long prec, GEN *ptL, GEN *ptprep, GEN *ptdis)
   *ptL = L; return den;
 }
 
-/* ||| M ||| with respect to || x ||_oo. Assume M square t_MAT */
+/* ||| M ||| with respect to || x ||_oo, M t_MAT */
 GEN
 matrixnorm(GEN M, long prec)
 {
-  long i,j, n = lg(M);
+  long i,j,m, l = lg(M);
   GEN B = real_0(prec);
 
-  for (i = 1; i < n; i++)
+  if (l == 1) return B;
+  m = lgcols(M);
+  for (i = 1; i < m; i++)
   {
     GEN z = gabs(gcoeff(M,i,1), prec);
-    for (j = 2; j < n; j++) z = gadd(z, gabs(gcoeff(M,i,j), prec));
+    for (j = 2; j < l; j++) z = gadd(z, gabs(gcoeff(M,i,j), prec));
     if (gcmp(z, B) > 0) B = z;
   }
   return B;
@@ -2327,7 +2320,7 @@ galoisconj4(GEN nf, GEN d)
 
 }
 
-/* d multipllicative bound for the automorphism's denominators */
+/* d multiplicative bound for the automorphism's denominators */
 GEN
 galoisconj(GEN nf, GEN d)
 {
@@ -2517,7 +2510,7 @@ galoisfixedfield(GEN gal, GEN perm, long flag, long y)
       mod = Pgb.ladicabs; mod2 = shifti(mod,-1);
     }
     PM = vandermondeinversemod(PL, P, Pden, mod);
-    if (y < 0) y = fetch_user_var("y");
+    if (y < 0) y = 1;
     if (varncmp(y, vT) <= 0)
       pari_err_PRIORITY("galoisfixedfield", T, "<=", y);
     res = cgetg(4, t_VEC);

@@ -727,7 +727,9 @@ BPSW_isprime_big(GEN N)
 
   p = gel(P,n);
   /* fully factored */
-  if (cmpiu(p,B) <= 0 || (BPSW_psp_nosmalldiv(p) && check_prime(p)))
+  if (cmpiu(p,B) <= 0 ||
+      (BPSW_psp_nosmalldiv(p)
+      && (BPSW_isprime_small(N) || BPSW_isprime_big(p))))
     return isprimeSelfridge(N,P, n);
 
   E = gel(fa,2);
@@ -1174,8 +1176,17 @@ primes_interval(GEN a, GEN b)
   forprime_t S;
   long i, n;
   GEN y, d, p;
-  if (typ(a) != t_INT) a = gceil(a);
-  if (typ(b) != t_INT) b = gfloor(b);
+  if (typ(a) != t_INT)
+  {
+    a = gceil(a);
+    if (typ(a) != t_INT) pari_err_TYPE("primes_interval",a);
+  }
+  if (typ(b) != t_INT)
+  {
+    b = gfloor(b);
+    if (typ(b) != t_INT) pari_err_TYPE("primes_interval",b);
+  }
+  if (signe(a) < 0) a = gen_2;
   d = subii(b, a);
   if (signe(d) < 0 || signe(b) <= 0) { avma = av; return cgetg(1, t_VEC); }
   if (lgefint(b) == 3)

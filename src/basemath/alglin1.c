@@ -77,7 +77,7 @@ _copy(void *E, GEN x)
 static void
 gerepile_gauss_ker(GEN x, long k, long t, pari_sp av)
 {
-  return gen_gerepile_gauss_ker(x, k, t, av, NULL, &_copy);
+  gen_gerepile_gauss_ker(x, k, t, av, NULL, &_copy);
 }
 
 static void
@@ -503,35 +503,35 @@ F2m_ker_sp(GEN x, long deplin)
 static void /* assume m < p */
 _Fl_submul(GEN b, long k, long i, ulong m, ulong p)
 {
-  b[k] = Fl_sub(b[k], Fl_mul(m, b[i], p), p);
+  uel(b,k) = Fl_sub(uel(b,k), Fl_mul(m, uel(b,i), p), p);
 }
 static void /* same m = 1 */
 _Fl_sub(GEN b, long k, long i, ulong p)
 {
-  b[k] = Fl_sub(b[k], b[i], p);
+  uel(b,k) = Fl_sub(uel(b,k), uel(b,i), p);
 }
 static void /* assume m < p && SMALL_ULONG(p) && (! (b[i] & b[k] & HIGHMASK)) */
 _Fl_addmul_OK(GEN b, long k, long i, ulong m, ulong p)
 {
   uel(b,k) += m * uel(b,i);
-  if (b[k] & HIGHMASK) uel(b,k) %= p;
+  if (uel(b,k) & HIGHMASK) uel(b,k) %= p;
 }
 static void /* assume SMALL_ULONG(p) && (! (b[i] & b[k] & HIGHMASK)) */
 _Fl_add_OK(GEN b, long k, long i, ulong p)
 {
   uel(b,k) += uel(b,i);
-  if (b[k] & HIGHMASK) uel(b,k) %= p;
+  if (uel(b,k) & HIGHMASK) uel(b,k) %= p;
 }
 static void /* assume m < p */
 _Fl_addmul(GEN b, long k, long i, ulong m, ulong p)
 {
   uel(b,i) %= p;
-  b[k] = Fl_add(b[k], Fl_mul(m, b[i], p), p);
+  uel(b,k) = Fl_add(uel(b,k), Fl_mul(m, uel(b,i), p), p);
 }
 static void /* same m = 1 */
 _Fl_add(GEN b, long k, long i, ulong p)
 {
-  b[k] = Fl_add(b[k], b[i], p);
+  uel(b,k) = Fl_add(uel(b,k), uel(b,i), p);
 }
 
 /* in place, destroy x */
@@ -609,10 +609,10 @@ Flm_ker_sp(GEN x, ulong p, long deplin)
     gel(y,j) = C; while (d[k]) k++;
     for (i=1; i<k; i++)
       if (d[i])
-        C[i] = ucoeff(x,d[i],k) % p;
+        uel(C,i) = ucoeff(x,d[i],k) % p;
       else
-        C[i] = 0;
-    C[k] = 1; for (i=k+1; i<=n; i++) C[i] = 0;
+        uel(C,i) = 0UL;
+    uel(C,k) = 1UL; for (i=k+1; i<=n; i++) uel(C,i) = 0UL;
   }
   return y;
 }
@@ -626,7 +626,7 @@ FpM_intersect(GEN x, GEN y, GEN p)
 
   if (lx==1 || lg(y)==1) return cgetg(1,t_MAT);
   z = FpM_ker(shallowconcat(x,y), p);
-  for (j=lg(z)-1; j; j--) setlg(z[j],lx);
+  for (j=lg(z)-1; j; j--) setlg(gel(z,j),lx);
   return gerepileupto(av, FpM_mul(x,z,p));
 }
 
@@ -967,16 +967,26 @@ FlxqM_det(GEN a, GEN T, ulong p)
 }
 
 GEN
-FlxqM_FlxqC_mul(GEN A, GEN B, GEN T, unsigned long p) {
+FlxqM_FlxqC_mul(GEN A, GEN B, GEN T, ulong p) {
   void *E;
   const struct bb_field *ff = get_Flxq_field(&E, T, p);
   return gen_matcolmul(A, B, E, ff);
 }
 
 GEN
-FlxqM_mul(GEN A, GEN B, GEN T, unsigned long p) {
+FlxqM_mul(GEN A, GEN B, GEN T, ulong p) {
   void *E;
-  const struct bb_field *ff = get_Flxq_field(&E, T, p);
+  const struct bb_field *ff;
+  long n = lg(A) - 1;
+
+  if (n == 0)
+    return cgetg(1, t_MAT);
+  if (n > 1) {
+    GEN C = FlxqM_mul_Kronecker(A, B, T, p);
+    if (C != NULL)
+      return C;
+  }
+  ff = get_Flxq_field(&E, T, p);
   return gen_matmul(A, B, E, ff);
 }
 
@@ -999,10 +1009,9 @@ GEN
 F2xqM_inv(GEN a, GEN T)
 {
   pari_sp av = avma;
-  long n = lg(a)-1;
   GEN u;
-  if (!n) { avma = av; return cgetg(1, t_MAT); }
-  u = F2xqM_gauss_gen(a, matid_F2xqM(n,T), T);
+  if (lg(a) == 1) { avma = av; return cgetg(1, t_MAT); }
+  u = F2xqM_gauss_gen(a, matid_F2xqM(nbrows(a),T), T);
   if (!u) { avma = av; return NULL; }
   return gerepilecopy(av, u);
 }
@@ -1377,7 +1386,7 @@ Fl_get_col_OK(GEN a, GEN b, long li, ulong p)
     }
     m %= p;
     if (m) m = ((p-m) * ucoeff(a,i,i)) % p;
-    u[i] = m;
+    uel(u,i) = m;
   }
   return u;
 }
@@ -1385,17 +1394,17 @@ static GEN
 Fl_get_col(GEN a, GEN b, long li, ulong p)
 {
   GEN u = cgetg(li+1,t_VECSMALL);
-  ulong m = b[li] % p;
+  ulong m = uel(b,li) % p;
   long i,j;
 
-  u[li] = Fl_mul(m, ucoeff(a,li,li), p);
+  uel(u,li) = Fl_mul(m, ucoeff(a,li,li), p);
   for (i=li-1; i>0; i--)
   {
     m = b[i]%p;
     for (j = i+1; j <= li; j++)
-      m = Fl_sub(m, Fl_mul(ucoeff(a,i,j), u[j], p), p);
+      m = Fl_sub(m, Fl_mul(ucoeff(a,i,j), uel(u,j), p), p);
     if (m) m = Fl_mul(m, ucoeff(a,i,i), p);
-    u[i] = m;
+    uel(u,i) = m;
   }
   return u;
 }
@@ -1531,9 +1540,10 @@ RgM_solve(GEN a, GEN b)
   long i, j, k, li, bco, aco;
   int iscol;
   pivot_fun pivot;
-  GEN p, u, data;
+  GEN p, u, data, ff = NULL;
 
   if (is_modular_solve(a,b,&u)) return gerepileupto(av, u);
+  if (!b && RgM_is_FFM(a, &ff)) return FFM_inv(a, ff);
   avma = av;
 
   if (lg(a)-1 == 2 && nbrows(a) == 2) {
@@ -1757,6 +1767,23 @@ gauss(GEN a, GEN b)
   return z;
 }
 
+static GEN
+F2_get_col(GEN b, GEN d, long li, long aco)
+{
+  long i, l = nbits2lg(aco);
+  GEN u = cgetg(l, t_VECSMALL);
+  u[1] = aco;
+  for (i = 1; i <= li; i++)
+    if (d[i]) /* d[i] can still be 0 if li > aco */
+    {
+      if (F2v_coeff(b, i))
+        F2v_set(u, d[i]);
+      else
+        F2v_clear(u, d[i]);
+    }
+  return u;
+}
+
 /* destroy a, b */
 static GEN
 F2m_gauss_sp(GEN a, GEN b)
@@ -1765,7 +1792,7 @@ F2m_gauss_sp(GEN a, GEN b)
   GEN u, d;
 
   if (!aco) return cgetg(1,t_MAT);
-  li = coeff(a,1,1);
+  li = gel(a,1)[1];
   d = zero_Flv(li);
   bco = lg(b)-1;
   for (i=1; i<=aco; i++)
@@ -1779,37 +1806,25 @@ F2m_gauss_sp(GEN a, GEN b)
     if (k > li) return NULL;
     d[k] = i;
 
-    /* Clear k-th row but column-wise */
+    /* Clear k-th row but column-wise instead of line-wise */
+    /*  a_ij -= a_i1*a1j/a_11
+       line-wise grouping:  L_j -= a_1j/a_11*L_1
+       column-wise:         C_i -= a_i1/a_11*C_1
+    */
     F2v_clear(ai,k);
     for (l=1; l<=aco; l++)
     {
       GEN al = gel(a,l);
-      if (!F2v_coeff(al,k)) continue;
-
-      F2v_add_inplace(al,ai);
+      if (F2v_coeff(al,k)) F2v_add_inplace(al,ai);
     }
     for (l=1; l<=bco; l++)
     {
-      GEN al = gel(b,l);
-      if (!F2v_coeff(al,k)) continue;
-
-      F2v_add_inplace(al,ai);
+      GEN bl = gel(b,l);
+      if (F2v_coeff(bl,k)) F2v_add_inplace(bl,ai);
     }
   }
-  u = gcopy(b);
-  for (j = 1; j <= bco; j++)
-  {
-    GEN bj = gel(b, j), uj = gel(u, j);
-
-    for (i = 1; i <= li; i++)
-      if (d[i] && d[i] != i) /* can d[i] still be 0 ? */
-      {
-        if (F2v_coeff(bj, i))
-          F2v_set(uj, d[i]);
-        else
-          F2v_clear(uj, d[i]);
-      }
-  }
+  u = cgetg(bco+1,t_MAT);
+  for (j = 1; j <= bco; j++) gel(u,j) = F2_get_col(gel(b,j), d, li, aco);
   return u;
 }
 
@@ -1834,7 +1849,7 @@ F2m_inv(GEN a)
 {
   pari_sp av = avma;
   if (lg(a) == 1) return cgetg(1,t_MAT);
-  return gerepileupto(av, F2m_gauss_sp(F2m_copy(a), matid_F2m(lg(a)-1)));
+  return gerepileupto(av, F2m_gauss_sp(F2m_copy(a), matid_F2m(gel(a,1)[1])));
 }
 
 /* destroy a, b */
@@ -1942,7 +1957,8 @@ Flm_gauss(GEN a, GEN b, ulong p) {
 }
 static GEN
 Flm_inv_sp(GEN a, ulong *detp, ulong p) {
-  return Flm_gauss_sp(a, matid_Flm(lg(a)-1), detp, p);
+  if (lg(a) == 1) return cgetg(1,t_MAT);
+  return Flm_gauss_sp(a, matid_Flm(nbrows(a)), detp, p);
 }
 GEN
 Flm_inv(GEN a, ulong p) {
@@ -1963,11 +1979,11 @@ FpM_gauss_gen(GEN a, GEN b, GEN p)
   const struct bb_field *S = get_Fp_field(&E,p);
   return gen_Gauss(a,b, E, S);
 }
-/* a an FpM; b an FpM or NULL (replace by identity) */
+/* a an FpM, lg(a)>1; b an FpM or NULL (replace by identity) */
 static GEN
 FpM_gauss_i(GEN a, GEN b, GEN p, ulong *pp)
 {
-  long n = lg(a)-1;
+  long n = nbrows(a);
   a = FpM_init(a,p,pp);
   switch(*pp)
   {
@@ -2057,10 +2073,9 @@ GEN
 FlxqM_inv(GEN a, GEN T, ulong p)
 {
   pari_sp av = avma;
-  long n = lg(a)-1;
   GEN u;
-  if (!n) { avma = av; return cgetg(1, t_MAT); }
-  u = FlxqM_gauss_gen(a, matid_FlxqM(n,T,p), T,p);
+  if (lg(a) == 1) { avma = av; return cgetg(1, t_MAT); }
+  u = FlxqM_gauss_gen(a, matid_FlxqM(nbrows(a),T,p), T,p);
   if (!u) { avma = av; return NULL; }
   return gerepilecopy(av, u);
 }
@@ -2099,10 +2114,9 @@ FqM_inv(GEN a, GEN T, GEN p)
 {
   pari_sp av = avma;
   GEN u;
-  long n;
   if (!T) return FpM_inv(a,p);
-  n = lg(a)-1; if (!n) return cgetg(1, t_MAT);
-  u = FqM_gauss_gen(a,matid(n),T,p);
+  if (lg(a) == 1) return cgetg(1, t_MAT);
+  u = FqM_gauss_gen(a,matid(nbrows(a)),T,p);
   if (!u) { avma = av; return NULL; }
   return gerepilecopy(av, u);
 }
@@ -2662,7 +2676,7 @@ ZM_count_0_cols(GEN M)
 }
 
 static void indexrank_all(long m, long n, long r, GEN d, GEN *prow, GEN *pcol);
-/* As RgM_pivots, integer entries */
+/* As RgM_pivots, integer entries. Set *rr = dim Ker M0 */
 GEN
 ZM_pivots(GEN M0, long *rr)
 {
@@ -2689,11 +2703,12 @@ ZM_pivots(GEN M0, long *rr)
     for (av = avma, i = 0;; avma = av, i++)
     {
       ulong p = u_forprime_next(&S);
+      long rp;
       if (!p) pari_err_OVERFLOW("ZM_pivots [ran out of primes]");
-      d = Flm_gauss_pivot(ZM_to_Flm(M0, p), p, rr);
-      if (*rr == rmin) goto END; /* maximal rank, return */
-      if (*rr < rbest) { /* save best r so far */
-        rbest = *rr;
+      d = Flm_gauss_pivot(ZM_to_Flm(M0, p), p, &rp);
+      if (rp == rmin) { rbest = rp; goto END; } /* maximal rank, return */
+      if (rp < rbest) { /* save best r so far */
+        rbest = rp;
         if (dbest) gunclone(dbest);
         dbest = gclone(d);
         if (beenthere) break;
@@ -2720,7 +2735,7 @@ ZM_pivots(GEN M0, long *rr)
     avma = av;
   }
 END:
-  if (dbest) gunclone(dbest);
+  *rr = rbest; if (dbest) gunclone(dbest);
   return gerepileuptoleaf(av0, d);
 }
 

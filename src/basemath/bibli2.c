@@ -604,23 +604,44 @@ gprec_wtrunc(GEN x, long pr)
 /********************************************************************/
 /**                  LAPLACE TRANSFORM (OF A SERIES)               **/
 /********************************************************************/
-GEN
-laplace(GEN x)
+static GEN
+serlaplace(GEN x)
 {
-  pari_sp av = avma;
   long i, l = lg(x), e = valp(x);
-  GEN y, t;
-
-  if (typ(x) != t_SER) pari_err_TYPE("laplace",x);
+  GEN t, y = cgetg(l,t_SER);
   if (e < 0) pari_err_DOMAIN("laplace","valuation","<",gen_0,stoi(e));
-  y = cgetg(l,t_SER);
   t = mpfact(e); y[1] = x[1];
   for (i=2; i<l; i++)
   {
     gel(y,i) = gmul(t, gel(x,i));
     e++; t = mului(e,t);
   }
-  return gerepilecopy(av,y);
+  return y;
+}
+static GEN
+pollaplace(GEN x)
+{
+  long i, e = 0, l = lg(x);
+  GEN t = gen_1, y = cgetg(l,t_POL);
+  y[1] = x[1];
+  for (i=2; i<l; i++)
+  {
+    gel(y,i) = gmul(t, gel(x,i));
+    e++; t = mului(e,t);
+  }
+  return y;
+}
+GEN
+laplace(GEN x)
+{
+  pari_sp av = avma;
+  switch(typ(x))
+  {
+    case t_POL: x = pollaplace(x); break;
+    case t_SER: x = serlaplace(x); break;
+    default: pari_err_TYPE("laplace",x);
+  }
+  return gerepilecopy(av, x);
 }
 
 /********************************************************************/
@@ -688,9 +709,9 @@ dirmul(GEN x, GEN y)
       for (k=dy,i=j*dy; i<=nz; i+=j,k++) gel(z,i) = gsub(gel(z,i),gel(y,k));
     else
       for (k=dy,i=j*dy; i<=nz; i+=j,k++) gel(z,i) = gadd(gel(z,i),gmul(c,gel(y,k)));
-    if (gc_needed(av,1))
+    if (gc_needed(av,2))
     {
-      if (DEBUGLEVEL) err_printf("doubling stack in dirmul\n");
+      if (DEBUGMEM>1) pari_warn(warnmem,"dirmul, %ld/%ld",j,nx);
       z = gerepilecopy(av,z);
     }
   }
@@ -700,7 +721,7 @@ dirmul(GEN x, GEN y)
 GEN
 dirdiv(GEN x, GEN y)
 {
-  pari_sp av = avma;
+  pari_sp av = avma, av2;
   long nx,ny,nz,dx,dy,i,j;
   GEN z,p1;
 
@@ -710,11 +731,19 @@ dirdiv(GEN x, GEN y)
   dy = dirval(y); ny = lg(y)-1;
   if (dy != 1 || !ny) pari_err_INV("dirdiv",y);
   nz = minss(nx,ny*dx); p1 = gel(y,1);
-  if (!gequal1(p1)) { y = gdiv(y,p1); x = gdiv(x,p1); } else x = leafcopy(x);
-  z = zerovec(nz);
+  if (!gequal1(p1))
+  {
+    y = gdiv(y,p1);
+    av2 = avma;
+    x = gdiv(x,p1);
+  } else
+  {
+    av2 = avma;
+    x = leafcopy(x);
+  }
   for (j=dx; j<=nz; j++)
   {
-    GEN c = gel(x,j); gel(z,j) = c;
+    GEN c = gel(x,j);
     if (gequal0(c)) continue;
     if (gequal1(c))
       for (i=j+j; i<=nz; i+=j) gel(x,i) = gsub(gel(x,i),gel(y,i/j));
@@ -722,7 +751,17 @@ dirdiv(GEN x, GEN y)
       for (i=j+j; i<=nz; i+=j) gel(x,i) = gadd(gel(x,i),gel(y,i/j));
     else
       for (i=j+j; i<=nz; i+=j) gel(x,i) = gsub(gel(x,i),gmul(c,gel(y,i/j)));
+    if (gc_needed(av2,2))
+    {
+      if (DEBUGMEM>1) pari_warn(warnmem,"dirdiv, %ld/%ld",j,nz);
+      x = gerepilecopy(av2,x);
+    }
   }
+  z = cgetg(nz+1,t_VEC);
+  for (j=1; j<dx; j++)
+   gel(z,j) = gen_0;
+  for (j=dx; j<=nz; j++)
+   gel(z,j) = gel(x,j);
   return gerepilecopy(av,z);
 }
 
@@ -787,7 +826,7 @@ binomial(GEN n, long k)
     {
       y = cgetg(k+1,t_VEC);
       for (i=1; i<=k; i++) gel(y,i) = subis(n,i-1);
-      y = divide_conquer_prod(y,mulii);
+      y = ZV_prod(y);
     }
     y = diviiexact(y, mpfact(k));
     return gerepileuptoint(av, y);
@@ -801,9 +840,7 @@ binomial(GEN n, long k)
 
   y = cgetg(k+1,t_VEC);
   for (i=1; i<=k; i++) gel(y,i) = gsubgs(n,i-1);
-  y = divide_conquer_prod(y,gmul);
-  y = gdiv(y, mpfact(k));
-  return gerepileupto(av, y);
+  return gerepileupto(av, gdiv(RgV_prod(y), mpfact(k)));
 }
 
 /* Assume n >= 0, return bin, bin[k+1] = binomial(n, k) */
@@ -1316,7 +1353,9 @@ static void
 init_sort(GEN *x, long *tx, long *lx)
 {
   *tx = typ(*x);
-  if (*tx == t_LIST) {
+  if (*tx == t_LIST)
+  {
+    if (list_typ(*x)!=t_LIST_RAW) pari_err_TYPE("sort",*x);
     *x = list_data(*x);
     *lx = *x? lg(*x): 1;
   } else {
@@ -1750,7 +1789,9 @@ gtoset(GEN x)
   {
     case t_VEC:
     case t_COL: lx = lg(x); break;
-    case t_LIST: x = list_data(x); lx = x? lg(x): 1; break;
+    case t_LIST:
+      if (list_typ(x)==t_LIST_MAP) return mapdomain(x);
+      x = list_data(x); lx = x? lg(x): 1; break;
     case t_VECSMALL: lx = lg(x); x = zv_to_ZV(x); break;
     default: return mkveccopy(x);
   }
@@ -1779,7 +1820,9 @@ setsearch(GEN T, GEN y, long flag)
   switch(typ(T))
   {
     case t_VEC: lx = lg(T); break;
-    case t_LIST: T = list_data(T); lx = T? lg(T): 1; break;
+    case t_LIST:
+    if (list_typ(T) != t_LIST_RAW) pari_err_TYPE("setsearch",T);
+    T = list_data(T); lx = T? lg(T): 1; break;
     default: pari_err_TYPE("setsearch",T);
       return 0; /*not reached*/
   }

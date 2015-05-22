@@ -213,19 +213,36 @@ copyvalue(entree *ep)
 INLINE void
 err_var(GEN x) { pari_err_TYPE("evaluator [variable name expected]", x); }
 
+enum chk_VALUE { chk_ERROR, chk_NOCREATE, chk_CREATE };
+
 INLINE void
-checkvalue(entree *ep)
+checkvalue(entree *ep, enum chk_VALUE flag)
 {
   if (MT_IS_THREAD)
     pari_err(e_MISC,"mt: global variable not supported: %s",ep->name);
   if (ep->valence==EpNEW)
-  {
-    pari_var_create(ep);
-    ep->valence = EpVAR;
-    ep->value = initial_value(ep);
-  }
+    switch(flag)
+    {
+      case chk_ERROR:
+        /* Do nothing until we can report a meaningful error message
+           The extra variable will be cleaned-up anyway */
+      case chk_CREATE:
+        pari_var_create(ep);
+        ep->valence = EpVAR;
+        ep->value = initial_value(ep);
+        break;
+      case chk_NOCREATE:
+        break;
+    }
   else if (ep->valence!=EpVAR)
     err_var(strtoGENstr(ep->name));
+}
+
+INLINE GEN
+checkvalueptr(entree *ep)
+{
+  checkvalue(ep, chk_NOCREATE);
+  return ep->valence==EpNEW? gen_0: (GEN)ep->value;
 }
 
 /* make GP variables safe for avma = top */
@@ -266,7 +283,7 @@ GEN*
 safelistel(GEN x, long l)
 {
   GEN d;
-  if (typ(x)!=t_LIST)
+  if (typ(x)!=t_LIST || list_typ(x)!=t_LIST_RAW)
     pari_err_TYPE("safelistel",x);
   d = list_data(x);
   check_array_index(l, lg(d));
@@ -737,6 +754,14 @@ closure_err(long level)
   }
 }
 
+GEN
+pari_self(void)
+{
+  long fun = s_trace.n - 1;
+  if (fun > 0) while (lg(trace[fun].closure)==6) fun--;
+  return trace[fun].closure;
+}
+
 long
 closure_context(long start, long level)
 {
@@ -829,14 +854,13 @@ closure_eval(GEN C)
     case OCpushvar:
       {
         entree *ep = (entree *)operand;
-        pari_var_create(ep);
-        gel(st,sp++)=(GEN)initial_value(ep);
+        gel(st,sp++)=pol_x(pari_var_create(ep));
         break;
       }
     case OCpushdyn:
       {
         entree *ep = (entree *)operand;
-        checkvalue(ep);
+        checkvalue(ep, chk_CREATE);
         gel(st,sp++)=(GEN)ep->value;
         break;
       }
@@ -848,8 +872,7 @@ closure_eval(GEN C)
         gp_pointer *g = new_ptr();
         g->vn=0;
         g->ep = (entree*) operand;
-        checkvalue(g->ep);
-        g->x = (GEN) g->ep->value;
+        g->x = checkvalueptr(g->ep);
         g->ox = g->x; clone_lock(g->ox);
         g->sp = sp;
         gel(st,sp++) = (GEN)&(g->x);
@@ -871,7 +894,7 @@ closure_eval(GEN C)
         entree *ep = (entree *)operand;
         gp_pointer *g = new_ptr();
         matcomp *C;
-        checkvalue(ep);
+        checkvalue(ep, chk_ERROR);
         g->sp = -1;
         g->x = copyvalue(ep);
         g->ox = g->x; clone_lock(g->ox);
@@ -923,7 +946,7 @@ closure_eval(GEN C)
     case OCstoredyn:
       {
         entree *ep = (entree *)operand;
-        checkvalue(ep);
+        checkvalue(ep, chk_NOCREATE);
         changevalue(ep, gel(st,--sp));
         break;
       }
@@ -957,7 +980,7 @@ closure_eval(GEN C)
     case OCcowvardyn:
       {
         entree *ep = (entree *)operand;
-        checkvalue(ep);
+        checkvalue(ep, chk_ERROR);
         (void)copyvalue(ep);
         break;
       }
@@ -1026,6 +1049,8 @@ closure_eval(GEN C)
         case t_LIST:
           {
             long lx;
+            if (list_typ(p)!=t_LIST_RAW)
+              pari_err_TYPE("_[_] OCcompo1 [not a vector]", p);
             p = list_data(p); lx = p? lg(p): 1;
             check_array_index(c, lx);
             closure_castgen(gel(p,c),operand);
@@ -1062,6 +1087,8 @@ closure_eval(GEN C)
           g->x = stoi(p[c]);
           break;
         case t_LIST:
+          if (list_typ(p)!=t_LIST_RAW)
+            pari_err_TYPE("&_[_] OCcompo1 [not a vector]", p);
           p = list_data(p); lx = p? lg(p): 1;
           check_array_index(c,lx);
           C->ptcell = (GEN *) p+c;
@@ -1169,7 +1196,7 @@ closure_eval(GEN C)
       {
         long n = pari_stack_new(&s_lvars);
         entree *ep = (entree *)operand;
-        checkvalue(ep);
+        checkvalue(ep, chk_NOCREATE);
         lvars[n] = ep;
         nblvar++;
         pushvalue(ep,gel(st,--sp));
@@ -1179,7 +1206,7 @@ closure_eval(GEN C)
       {
         long n = pari_stack_new(&s_lvars);
         entree *ep = (entree *)operand;
-        checkvalue(ep);
+        checkvalue(ep, chk_NOCREATE);
         lvars[n] = ep;
         nblvar++;
         zerovalue(ep);
@@ -1539,24 +1566,6 @@ closure_returnupto(GEN C)
   return copyupto(closure_return(C),(GEN)av);
 }
 
-void
-closure_callvoid1(GEN C, GEN x)
-{
-  long i, ar = closure_arity(C);
-  gel(st,sp++) = x;
-  for(i=2; i <= ar; i++) gel(st,sp++) = NULL;
-  closure_evalvoid(C);
-}
-
-GEN
-closure_callgen1(GEN C, GEN x)
-{
-  long i, ar = closure_arity(C);
-  gel(st,sp++) = x;
-  for(i=2; i<= ar; i++) gel(st,sp++) = NULL;
-  return closure_returnupto(C);
-}
-
 GEN
 pareval_worker(GEN C)
 {
@@ -1655,7 +1664,7 @@ parsum(GEN a, GEN b, GEN code, GEN x)
 }
 
 void
-parfor(GEN a, GEN b, GEN code, GEN code2)
+parfor(GEN a, GEN b, GEN code, void *E, long call(void*, GEN, GEN))
 {
   pari_sp av = avma, av2;
   long running, pending = 0;
@@ -1674,19 +1683,13 @@ parfor(GEN a, GEN b, GEN code, GEN code2)
   {
     mt_queue_submit(&pt, 0, running ? a: NULL);
     done = mt_queue_get(&pt, NULL, &pending);
-    if (code2 && done && (!stop || cmpii(gel(done,1),stop) < 0))
-    {
-      push_lex(gel(done,1), code2);
-      push_lex(gel(done,2), NULL);
-      closure_evalvoid(code2);
-      pop_lex(2);
-      if (loop_break())
+    if (call && done && (!stop || cmpii(gel(done,1),stop) < 0))
+      if (call(E, gel(done,1), gel(done,2)))
       {
         status = br_status;
         br_status = br_NONE;
         stop = gerepileuptoint(av2, gel(done,1));
       }
-    }
     gel(a,1) = incloop(gel(a,1));
     if (!stop) avma = av2;
   }
@@ -1696,8 +1699,25 @@ parfor(GEN a, GEN b, GEN code, GEN code2)
   avma = av;
 }
 
+static long
+gp_evalvoid2(void *E, GEN x, GEN y)
+{
+  GEN code =(GEN) E;
+  push_lex(x, code);
+  push_lex(y, NULL);
+  closure_evalvoid(code);
+  pop_lex(2);
+  return loop_break();
+}
+
 void
-parforprime(GEN a, GEN b, GEN code, GEN code2)
+parfor0(GEN a, GEN b, GEN code, GEN code2)
+{
+  parfor(a, b, code, (void*)code2, code2 ? gp_evalvoid2: NULL);
+}
+
+void
+parforprime(GEN a, GEN b, GEN code, void *E, long call(void*, GEN, GEN))
 {
   pari_sp av = avma, av2;
   long running, pending = 0;
@@ -1714,25 +1734,56 @@ parforprime(GEN a, GEN b, GEN code, GEN code2)
   {
     mt_queue_submit(&pt, 0, running ? mkvec(T.pp): NULL);
     done = mt_queue_get(&pt, NULL, &pending);
-    if (code2 && done && (!stop || cmpii(gel(done,1),stop) < 0))
-    {
-      push_lex(gel(done,1), code2);
-      push_lex(gel(done,2), NULL);
-      closure_evalvoid(code2);
-      pop_lex(2);
-      if (loop_break())
+    if (call && done && (!stop || cmpii(gel(done,1),stop) < 0))
+      if (call(E, gel(done,1), gel(done,2)))
       {
         status = br_status;
         br_status = br_NONE;
         stop = gerepileuptoint(av2, gel(done,1));
       }
-    }
     if (!stop) avma = av2;
   }
   avma = av2;
   mt_queue_end(&pt);
   br_status = status;
   avma = av;
+}
+
+void
+parforprime0(GEN a, GEN b, GEN code, GEN code2)
+{
+  parforprime(a, b, code, (void*)code2, code2? gp_evalvoid2: NULL);
+}
+
+void
+closure_callvoid1(GEN C, GEN x)
+{
+  long i, ar = closure_arity(C);
+  gel(st,sp++) = x;
+  for(i=2; i <= ar; i++) gel(st,sp++) = NULL;
+  closure_evalvoid(C);
+}
+
+GEN
+closure_callgen1(GEN C, GEN x)
+{
+  long i, ar = closure_arity(C);
+  gel(st,sp++) = x;
+  for(i=2; i<= ar; i++) gel(st,sp++) = NULL;
+  return closure_returnupto(C);
+}
+
+GEN
+closure_callgen1prec(GEN C, GEN x, long prec)
+{
+  GEN z;
+  long i, ar = closure_arity(C);
+  gel(st,sp++) = x;
+  for(i=2; i<= ar; i++) gel(st,sp++) = NULL;
+  push_localprec(prec);
+  z = closure_returnupto(C);
+  pop_localprec();
+  return z;
 }
 
 GEN
@@ -1751,9 +1802,21 @@ closure_callgenvec(GEN C, GEN args)
 {
   long i, l = lg(args), ar = closure_arity(C);
   st_alloc(ar);
+  if (l-1 > ar)
+    pari_err(e_MISC,"too many parameters in user-defined function call");
   for (i = 1; i < l;   i++) gel(st,sp++) = gel(args,i);
   for(      ; i <= ar; i++) gel(st,sp++) = NULL;
   return closure_returnupto(C);
+}
+
+GEN
+closure_callgenvecprec(GEN C, GEN args, long prec)
+{
+  GEN z;
+  push_localprec(prec);
+  z = closure_callgenvec(C, args);
+  pop_localprec();
+  return z;
 }
 
 GEN
@@ -1762,6 +1825,8 @@ closure_callgenall(GEN C, long n, ...)
   va_list ap;
   long i, ar = closure_arity(C);
   va_start(ap,n);
+  if (n > ar)
+    pari_err(e_MISC,"too many parameters in user-defined function call");
   st_alloc(ar);
   for (i = 1; i <=n;  i++) gel(st,sp++) = va_arg(ap, GEN);
   for(      ; i <=ar; i++) gel(st,sp++) = NULL;
@@ -1782,6 +1847,16 @@ gp_evalupto(void *E, GEN x)
 {
   pari_sp av = avma;
   return copyupto(gp_eval(E,x), (GEN)av);
+}
+
+GEN
+gp_evalprec(void *E, GEN x, long prec)
+{
+  GEN z;
+  push_localprec(prec);
+  z = gp_eval(E, x);
+  pop_localprec();
+  return z;
 }
 
 long
@@ -1806,6 +1881,20 @@ gp_call(void *E, GEN x)
 {
   GEN code = (GEN)E;
   return closure_callgen1(code, x);
+}
+
+GEN
+gp_callprec(void *E, GEN x, long prec)
+{
+  GEN code = (GEN)E;
+  return closure_callgen1prec(code, x, prec);
+}
+
+GEN
+gp_call2(void *E, GEN x, GEN y)
+{
+  GEN code = (GEN)E;
+  return closure_callgen2(code, x, y);
 }
 
 long
@@ -2278,11 +2367,6 @@ copybin_unlink(GEN C)
   return res;
 }
 
-static ulong
-hash_id(void *x) { return (ulong)x; }
-static int
-eq_id(void *x, void *y) { return x == y; }
-
 /* e = t_VECSMALL of entree *ep [ addresses ],
  * names = t_VEC of strtoGENstr(ep.names),
  * Return hashtable : ep => is_entry(ep.name) */
@@ -2290,12 +2374,12 @@ hashtable *
 hash_from_link(GEN e, GEN names, int use_stack)
 {
   long i, l = lg(e);
-  hashtable *h = hash_create(l-1, &hash_id, &eq_id, use_stack);
+  hashtable *h = hash_create_ulong(l-1, use_stack);
   if (lg(names) != l) pari_err_DIM("hash_from_link");
   for (i = 1; i < l; i++)
   {
     char *s = GSTR(gel(names,i));
-    hash_insert(h, (void*)e[i], (void*)fetch_entry(s, strlen(s)));
+    hash_insert(h, (void*)e[i], (void*)fetch_entry(s));
   }
   return h;
 }

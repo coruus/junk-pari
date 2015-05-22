@@ -86,6 +86,7 @@ GEN  gsube(GEN *x, GEN y);
 GEN  gsub1e(GEN *x);
 GEN  gshift_right(GEN x, long n);
 
+GEN  asympnum0(GEN u, long muli, GEN alpha, long prec);
 GEN  derivnum0(GEN a, GEN code, long prec);
 GEN  derivfun0(GEN code, GEN args, long prec);
 GEN  direuler0(GEN a, GEN b, GEN code, GEN c);
@@ -98,16 +99,11 @@ void forsubgroup0(GEN cyc, GEN bound, GEN code);
 void forvec(GEN x, GEN code, long flag);
 void forpart0(GEN k, GEN code , GEN nbound, GEN abound);
 GEN  intcirc0(GEN a, GEN R, GEN code, GEN tab, long prec);
-GEN  intfourcos0(GEN a, GEN b, GEN x, GEN code, GEN tab, long prec);
-GEN  intfourexp0(GEN a, GEN b, GEN x, GEN code, GEN tab, long prec);
-GEN  intfoursin0(GEN a, GEN b, GEN x, GEN code, GEN tab, long prec);
-GEN  intfuncinit0(GEN a, GEN b, GEN code, long flag, long m, long prec);
-GEN  intlaplaceinv0(GEN sig, GEN x, GEN code, GEN tab, long prec);
-GEN  intmellininv0(GEN sig, GEN x, GEN code, GEN tab, long prec);
+GEN  intfuncinit0(GEN a, GEN b, GEN code, long m, long prec);
 GEN  intnum0(GEN a, GEN b, GEN code, GEN tab, long prec);
-GEN  intnuminit0(GEN a, GEN b, GEN tab, long prec);
-GEN  intnuminitgen0(GEN a, GEN b, GEN code, long m, long flag, long prec);
+GEN  intnumgauss0(GEN a, GEN b, GEN code, GEN tab, long prec);
 GEN  intnumromb0(GEN a, GEN b, GEN code, long flag, long prec);
+GEN  limitnum0(GEN u, long muli, GEN alpha, long prec);
 GEN  matrice(GEN nlig, GEN ncol, GEN code);
 GEN  prodeuler0(GEN a, GEN b, GEN code, long prec);
 GEN  prodinf0(GEN a, GEN code, long flag, long prec);
@@ -117,9 +113,8 @@ GEN  sumalt0(GEN a, GEN code,long flag, long prec);
 GEN  sumdivexpr(GEN num, GEN code);
 GEN  sumdivmultexpr(GEN num, GEN code);
 GEN  suminf0(GEN a, GEN code, long prec);
-GEN  sumnum0(GEN a, GEN sig, GEN code, GEN tab, long flag, long prec);
-GEN  sumnumalt0(GEN a, GEN sig, GEN code, GEN tab, long flag, long prec);
-GEN  sumnuminit0(GEN a, GEN tab, long sgn, long prec);
+GEN  sumnum0(GEN a, GEN code, GEN tab, long prec);
+GEN  sumnummonien0(GEN a, GEN code, GEN tab, long prec);
 GEN  sumpos0(GEN a, GEN code, long flag,long prec);
 GEN  vecexpr0(GEN nmax, GEN code, GEN pred);
 GEN  vecexpr1(GEN nmax, GEN code, GEN pred);
@@ -135,9 +130,9 @@ void mt_init_stack(size_t s);
 int  mt_is_thread(void);
 GEN  parapply_worker(GEN d, GEN code);
 GEN  pareval_worker(GEN code);
-void parfor(GEN a, GEN b, GEN code, GEN code2);
+void parfor0(GEN a, GEN b, GEN code, GEN code2);
 GEN  parfor_worker(GEN i, GEN C);
-void parforprime(GEN a, GEN b, GEN code, GEN code2);
+void parforprime0(GEN a, GEN b, GEN code, GEN code2);
 GEN  parvector_worker(GEN i, GEN C);
 
 /* multiprecision */
@@ -232,7 +227,6 @@ GEN lift_intern(GEN x);
 GEN chk_factors_get(GEN lt, GEN famod, GEN c, GEN T, GEN N);
 long cmbf_maxK(long nb);
 GEN ZX_DDF(GEN x);
-GEN fact_from_DDF(GEN fa, GEN e, long n);
 GEN initgaloisborne(GEN T, GEN dn, long prec, GEN *pL, GEN *pprep, GEN *pdis);
 GEN logmax_modulus_bound(GEN p);
 GEN polint_i(GEN xa, GEN ya, GEN x, long n, GEN *ptdy);
@@ -260,7 +254,56 @@ enum { FF_CARD = 1, FF_GROUP, FF_GROUPGEN, FF_O };
 /* for Buchall_param */
 enum { fupb_NONE, fupb_RELAT, fupb_LARGE, fupb_PRECI };
 
+/*
+ * Represents the data in the equation(s)
+ *
+ *   4p = t^2 - v^2 D = t^2 - v^2 u^2 D_K = w^2 D_K.
+ *
+ * t is the absolute trace, so always > 0.
+ * T is a twisting parameter, which satisfies (T|p) == -1.
+ * factw is the factorisation of w
+ * u_levels[i] is the valuation of u at the ith factor of w,
+ * i.e. the level of D in the ith volcano.
+ * vdepths[i] is the depth of the ith volcano.
+ */
+typedef struct {
+  long D;
+  long t, u, v, w;
+  ulong p, pi;
+  ulong T;
+  GEN factw;
+  GEN u_levels;
+  GEN vdepths;
+} norm_eqn_struct;
+typedef norm_eqn_struct norm_eqn_t[1];
+
+/* Isogeny volcanos */
+long j_level_in_volcano(
+  GEN phi, ulong j, ulong p, ulong pi, long L, long depth);
+ulong ascend_volcano(
+  GEN phi, ulong j, ulong p, ulong pi, long level, long L, long depth,
+  long steps);
+ulong descend_volcano(
+  GEN phi, ulong j, ulong p, ulong pi, long level, long L, long depth,
+  long steps);
+long walk_surface_path(
+  ulong path[], GEN phi, ulong p, ulong pi, long L, long depth,
+  long max_len);
+GEN enum_j_with_endo_ring(
+  ulong j0, norm_eqn_t ne, GEN *mpdb, GEN pcp, long max_elts);
+
+/* Polmodular database maintenance */
+GEN polmodular_db_init(GEN levels);
+void polmodular_db_clear(GEN db);
+GEN polmodular_db_get(GEN *db, long L);
+GEN polmodular_db_getp(GEN *db, long L, ulong p);
+
+void random_curves_with_m_torsion(
+  ulong *a4, ulong *a6, ulong *tx, ulong *ty,
+  long ncurves, long m, ulong p);
+
 /* Allocation / gerepile */
+long   getdebugvar(void);
 void   setdebugvar(long n);
 void   debug_stack(void);
 void   fill_stack(void);
@@ -283,7 +326,6 @@ is_keyword_char(char c) { return (isalnum((int)c) || c=='_'); }
 /* Interfaces (GP, etc.) */
 hashtable *hash_from_link(GEN e, GEN names, int use_stack);
 void gen_relink(GEN x, hashtable *table);
-entree* is_entry_intern(const char *s, entree **table, long *hash);
 entree* do_alias(entree *ep);
 char* get_sep(const char *t);
 long get_int(const char *s, long dflt);
@@ -311,7 +353,7 @@ void  whatnow_new_syntax(const char *f, long n);
 void decode_color(long n, long *c);
 
 /* defaults */
-extern ulong precreal;
+extern long precreal;
 
 void lim_lines_output(char *s, long n, long max);
 int tex2mail_output(GEN z, long n);
@@ -331,6 +373,8 @@ void evalstate_reset(void);
 void evalstate_restore(struct pari_evalstate *state);
 GEN  evalstate_restore_err(struct pari_evalstate *state);
 void evalstate_save(struct pari_evalstate *state);
+void varstate_save(struct pari_varstate *s);
+void varstate_restore(struct pari_varstate *s);
 
 void mtstate_save(long *pending);
 void mtstate_reset(void);
@@ -365,7 +409,6 @@ enum { EpNEW = 100, EpALIAS, EpVAR, EpINSTALL };
 extern const long functions_tblsz;  /* hashcodes table size */
 extern entree **functions_hash;   /* functions hashtable */
 extern entree **defaults_hash;    /* defaults hashtable */
-extern entree oldfonctions[];
 
 /* buffers */
 typedef struct Buffer {
@@ -448,7 +491,6 @@ long    set_optimize(long what, GEN g);
 /* base2.c */
 
 GEN     gen_if_principal(GEN bnf, GEN x);
-int     nfissquarefree(GEN nf, GEN x);
 GEN     polsymmodp(GEN g, GEN p);
 GEN     nfbasis_gp(GEN T);
 
@@ -467,8 +509,7 @@ long    val_norm(GEN x, GEN p, long *vz);
 
 /* base5.c */
 
-GEN     check_and_build_nfabs(GEN rnf);
-GEN     check_and_build_norms(GEN rnf);
+GEN     check_and_build_nfabs(GEN rnf, long prec);
 
 /* buch1.c */
 
@@ -515,9 +556,14 @@ void    pari_close_files(void);
 int     popinfile(void);
 pariFILE* try_pipe(const char *cmd, int flag);
 
+/* Flx.c */
+
+GEN FlxqM_mul_Kronecker(GEN A, GEN B, GEN T, ulong p);
+
 /* Flxq_log.c */
 
 GEN Flxq_log_index(GEN a0, GEN b0, GEN m, GEN T0, ulong p);
+int Flxq_log_use_index(GEN m, GEN T0, ulong p);
 
 /* FlxqE.c */
 
@@ -611,6 +657,10 @@ GEN     sylvestermatrix_i(GEN x, GEN y);
 /* QX_factor */
 
 void    factor_quad(GEN x, GEN res, long *ptcnt);
+
+/* FpX.c */
+
+ulong   Flj_order_ufact(GEN P, ulong n, GEN F, ulong a4, ulong p, ulong pi);
 
 /* FpX.c */
 
